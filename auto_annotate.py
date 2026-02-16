@@ -99,13 +99,21 @@ Produce a Python dict called `spec` with exactly these keys:
       Identifying dominant frequencies in a sound recording"). Draw from
       diverse domains: science, engineering, finance, biology, CS, etc.
 
-  "constants": list of dict (optional)
-      Mathematical constants appearing in the equation. Each dict has:
-        - "symbol": str — the constant's symbol in plain text (e.g., "e", "π", "i")
-        - "description": str — brief plain-English explanation
-          (e.g., "Euler's number (≈ 2.718), the base of natural logarithms")
-      Only include genuine mathematical/physical constants, not variables.
-      Omit this key if the equation has no notable constants.
+  "symbols": list of dict (REQUIRED)
+      Every distinct symbol in the equation. Each dict has:
+        - "symbol": str — the symbol as displayed (plain text: "K_m", "V_max", "[S]", "π")
+        - "name": str — short formal name (e.g., "Michaelis constant", "substrate concentration")
+        - "type": str — one of "variable", "parameter", or "constant"
+            variable: quantities that change or are measured
+            parameter: fixed values characterizing the specific system
+            constant: universal mathematical or physical constants
+        - "description": str — 1-2 sentence educational explanation:
+            For constants: state the value and what it represents
+            For parameters: explain what it controls and its physical meaning
+            For variables: explain what is being measured/computed and typical units
+      IMPORTANT: Include EVERY symbol. Parse the equation thoroughly.
+      For domain-specific parameters (K_m, V_max, etc.), explain what they
+      physically represent, not just restate the symbol name.
 
 Color palette guidelines (for dark #1a1a2e background):
   - Use 8-10 visually distinct, saturated colors. Good choices:
@@ -231,10 +239,23 @@ EXAMPLE_SPEC = {
         "components.\nEach output bin X_k measures how much the signal "
         "correlates with a sinusoid at frequency k."
     ),
-    "constants": [
-        {"symbol": "e", "description": "Euler's number (\u2248 2.718), the base of natural logarithms"},
-        {"symbol": "\u03c0", "description": "Pi (\u2248 3.14159), ratio of a circle's circumference to its diameter"},
-        {"symbol": "i", "description": "Imaginary unit, where i\u00b2 = \u22121"},
+    "symbols": [
+        {"symbol": "X_k", "name": "frequency component", "type": "variable",
+         "description": "The k-th complex-valued frequency bin. Magnitude gives the strength of frequency k in the signal."},
+        {"symbol": "x_n", "name": "time-domain sample", "type": "variable",
+         "description": "The n-th sample of the input signal, measured at equally spaced time intervals."},
+        {"symbol": "N", "name": "total samples", "type": "parameter",
+         "description": "Number of samples in the signal. Determines the frequency resolution: higher N gives finer frequency bins."},
+        {"symbol": "k", "name": "frequency index", "type": "parameter",
+         "description": "Index selecting which frequency to measure (0 to N\u22121). Each k corresponds to a frequency of k/N cycles per sample."},
+        {"symbol": "n", "name": "sample index", "type": "parameter",
+         "description": "Index iterating over each time-domain sample (0 to N\u22121). Used to walk through the signal point by point."},
+        {"symbol": "e", "name": "Euler's number", "type": "constant",
+         "description": "Mathematical constant (\u2248 2.718), the base of natural logarithms. Here it forms the complex exponential that generates sinusoids."},
+        {"symbol": "\u03c0", "name": "pi", "type": "constant",
+         "description": "Pi (\u2248 3.14159), ratio of a circle's circumference to its diameter. 2\u03c0 represents one full rotation."},
+        {"symbol": "i", "name": "imaginary unit", "type": "constant",
+         "description": "The imaginary unit where i\u00b2 = \u22121. Encodes phase information, allowing the DFT to capture both amplitude and phase."},
     ],
     "use_cases": [
         "Audio processing: Identifying the dominant frequencies in a sound recording",
@@ -302,7 +323,8 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
     groups = spec.get("groups", [])
     description = spec.get("description")
     use_cases = spec.get("use_cases", [])
-    constants = spec.get("constants", [])
+    symbols = spec.get("symbols", None)
+    constants = spec.get("constants", None)
 
     if output_name is None:
         # Convert title to snake_case filename
@@ -321,6 +343,7 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
         groups=groups,
         description=description,
         use_cases=use_cases,
+        symbols=symbols,
         constants=constants,
     )
 

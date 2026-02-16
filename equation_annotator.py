@@ -242,7 +242,7 @@ def _validate_groups(groups, num_segments):
 
 def _compute_vertical_layout(
     equation_fontsize, title, has_labels, groups, description, use_cases,
-    group_fontsize, description_fontsize, fig_dpi, constants=None,
+    group_fontsize, description_fontsize, fig_dpi, symbols=None,
 ):
     """Compute y-positions (figure-fraction) for all vertical layers.
 
@@ -315,15 +315,29 @@ def _compute_vertical_layout(
     else:
         desc_y = None
 
-    # Constants
-    if constants:
+    # Symbols (variable/parameter/constant definitions)
+    if symbols:
         gap = equation_fontsize * 0.3
         y_cursor += gap
-        const_y = y_cursor
-        const_height = description_fontsize * 1.6 * (len(constants) + 1)  # +1 for header
-        y_cursor = const_y + const_height
+        symbols_y = y_cursor
+        # Count lines: entries + type headers + blank separators
+        type_order = ["variable", "parameter", "constant"]
+        grouped = {t: [] for t in type_order}
+        for s in symbols:
+            t = s.get("type", "constant")
+            if t not in grouped:
+                t = "constant"
+            grouped[t].append(s)
+        active_types = [t for t in type_order if grouped[t]]
+        show_headers = len(active_types) > 1
+        num_lines = sum(len(grouped[t]) for t in active_types)
+        if show_headers:
+            num_lines += len(active_types)  # type headers
+            num_lines += max(0, len(active_types) - 1)  # blank separators (half-height)
+        symbols_height = description_fontsize * 1.6 * (num_lines + 0.5)
+        y_cursor = symbols_y + symbols_height
     else:
-        const_y = None
+        symbols_y = None
 
     # Use cases
     if use_cases:
@@ -359,7 +373,7 @@ def _compute_vertical_layout(
             for lv, pos in group_level_positions.items()
         },
         "desc_y": to_frac(desc_y) if description else None,
-        "constants_y": to_frac(const_y) if constants else None,
+        "symbols_y": to_frac(symbols_y) if symbols else None,
         "use_cases_y": to_frac(uc_y) if use_cases else None,
         "total_height_px": total_height_px,
     }
@@ -457,21 +471,60 @@ def _render_description(fig, description, layout, description_fontsize,
     )
 
 
-def _render_constants(fig, constants, layout, description_fontsize):
-    """Render the constants section with header and symbol descriptions."""
-    const_y = layout["constants_y"]
-    if const_y is None:
+def _render_symbols(fig, symbols, layout, description_fontsize):
+    """Render the symbol definitions section grouped by type.
+
+    Uses ha='center' with multialignment='left' so the block is centered
+    in the figure (keeping title/equation alignment) while each line is
+    left-justified for readability.
+    """
+    symbols_y = layout.get("symbols_y")
+    if symbols_y is None:
         return
-    fs = description_fontsize * 0.95
-    header = "Constants:"
-    body_lines = [f"{c['symbol']} \u2014 {c['description']}" for c in constants]
-    full_text = header + "\n" + "\n".join(body_lines)
+
+    # Group entries by type
+    type_order = ["variable", "parameter", "constant"]
+    type_labels = {
+        "variable": "Variables",
+        "parameter": "Parameters",
+        "constant": "Constants",
+    }
+    grouped = {t: [] for t in type_order}
+    for s in symbols:
+        t = s.get("type", "constant")
+        if t not in grouped:
+            t = "constant"
+        grouped[t].append(s)
+
+    active_types = [t for t in type_order if grouped[t]]
+    show_headers = len(active_types) > 1
+
+    # Build a single multi-line string
+    lines = []
+    for ti, t in enumerate(active_types):
+        if ti > 0:
+            lines.append("")  # blank separator
+        if show_headers:
+            lines.append(type_labels[t])
+        for s in grouped[t]:
+            name = s.get("name", "")
+            desc = s.get("description", "")
+            sym = s.get("symbol", "")
+            if name:
+                lines.append(f"  {sym} ({name}) \u2014 {desc}")
+            else:
+                lines.append(f"  {sym} \u2014 {desc}")
+
+    full_text = "\n".join(lines)
+    fs = description_fontsize * 0.88
+
     fig.text(
-        0.5, const_y,
+        0.5, symbols_y,
         full_text,
         fontsize=fs,
         color="#AAAAAA",
         ha="center", va="top",
+        multialignment="left",
         usetex=False,
         transform=fig.transFigure,
         linespacing=1.5,
@@ -513,6 +566,7 @@ def annotate_equation(
     groups=None,
     description=None,
     use_cases=None,
+    symbols=None,
     constants=None,
     group_fontsize=None,
     description_fontsize=None,
@@ -554,9 +608,13 @@ def annotate_equation(
         Plain-English description rendered below groups.
     use_cases : list of str, optional
         Practical use-case examples rendered as a bulleted list.
+    symbols : list of dict, optional
+        Symbol definitions with 'symbol', 'name', 'type', and 'description'.
+        Type is one of 'variable', 'parameter', or 'constant'. Rendered
+        between description and use cases, grouped by type.
     constants : list of dict, optional
-        Mathematical constants with 'symbol' and 'description' keys.
-        Rendered between description and use cases.
+        Deprecated — use ``symbols`` instead. Legacy format with 'symbol'
+        and 'description' keys. Converted to symbols format automatically.
     group_fontsize : int, optional
         Font size for group labels (default: GROUP_FONTSIZE).
     description_fontsize : int, optional
@@ -574,8 +632,19 @@ def annotate_equation(
         groups = []
     if use_cases is None:
         use_cases = []
-    if constants is None:
-        constants = []
+    # Backward compat: convert legacy constants to symbols format
+    if symbols is None and constants is not None:
+        symbols = [
+            {
+                "symbol": c.get("symbol", ""),
+                "name": c.get("symbol", ""),
+                "type": "constant",
+                "description": c.get("description", ""),
+            }
+            for c in constants
+        ]
+    if symbols is None:
+        symbols = []
 
     # Validate groups
     if groups:
@@ -598,7 +667,7 @@ def annotate_equation(
     # Compute dynamic vertical layout
     layout = _compute_vertical_layout(
         equation_fontsize, title, has_labels, groups, description, use_cases,
-        group_fontsize, description_fontsize, fig_dpi, constants=constants,
+        group_fontsize, description_fontsize, fig_dpi, symbols=symbols,
     )
 
     # Initial measurement with a guess figsize for auto-sizing
@@ -770,9 +839,9 @@ def annotate_equation(
         _render_description(fig, description, layout, description_fontsize,
                             fig_width_px)
 
-    # Render constants
-    if constants:
-        _render_constants(fig, constants, layout, description_fontsize)
+    # Render symbol definitions
+    if symbols:
+        _render_symbols(fig, symbols, layout, description_fontsize)
 
     # Render use cases
     if use_cases:
@@ -855,6 +924,7 @@ Example JSON input file:
     groups = None
     description = None
     use_cases = None
+    symbols = None
     constants = None
 
     if input_file:
@@ -868,6 +938,7 @@ Example JSON input file:
             groups = data.get("groups", None)
             description = data.get("description", None)
             use_cases = data.get("use_cases", None)
+            symbols = data.get("symbols", None)
             constants = data.get("constants", None)
         else:
             raise ValueError("JSON must be a list of segments or a dict with 'segments' key.")
@@ -903,6 +974,7 @@ Example JSON input file:
         groups=groups,
         description=description,
         use_cases=use_cases,
+        symbols=symbols,
         constants=constants,
         group_fontsize=group_fs,
         description_fontsize=desc_fs,

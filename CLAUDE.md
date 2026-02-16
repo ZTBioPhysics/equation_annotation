@@ -21,10 +21,10 @@ Equation_Annotator/
 - **Input:** Python list of segment dicts with `latex`, `color`, optional `label` and `superscript`
 - **Hierarchical groups:** optional `groups` list with `segment_indices`, `label`, `color`, `level` — renders brackets spanning multiple segments
 - **Description & use cases:** optional `description` string and `use_cases` list rendered below groups
-- **Constants section:** optional `constants` list of `{symbol, description}` dicts — rendered between description and use cases
+- **Symbol definitions:** `symbols` list of `{symbol, name, type, description}` dicts — grouped by type (variable/parameter/constant), rendered between description and use cases. Backward-compatible with legacy `constants` format.
 - **Output:** PNG (300 DPI) + SVG via `save_figure()` helper
 - **Two-pass rendering:** measure text extents first, then compute layout and render
-- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → constants → use cases), converts to figure fractions
+- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → symbols → use cases), converts to figure fractions
 
 ## Key Design Decisions
 
@@ -94,14 +94,14 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 - **Description + use cases** — rendered below groups as italic text and bulleted list
 - **Auto-annotation via Claude Code** — `auto_annotate.py` with `GENERATION_PROMPT` and `render_from_spec()`
 - **Batch rendering** — `--spec-dir`, `--batch-file`, `--equations-list` for multi-equation workflows
-- **Constants section** — optional list of mathematical constants with symbol + description, rendered between description and use cases
-- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `constants` fields)
+- **Symbol definitions section** — every variable, parameter, and constant with name, type, and thorough educational description; grouped by type with headers
+- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols` fields; legacy `constants` still accepted)
 - PNG + SVG output at 300 DPI
 - Dynamic vertical layout adapts figure height to content
-- Git repo initialized, no commits yet
+- Pushed to GitHub (`main` branch)
 
 ## Pending / Next Steps
 
 1. Fine-tune connector line alignment for equations with very tall symbols
-2. Add more example equations (Bayes' theorem, Euler-Lagrange, etc.)
+2. Generate more example equations (Bayes' theorem, Euler-Lagrange, etc.) via auto-annotation workflow
 3. Consider alternative connector styles (dotted, curved) as options
