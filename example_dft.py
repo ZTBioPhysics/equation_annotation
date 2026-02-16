@@ -79,6 +79,33 @@ dft_segments = [
 ]
 
 
+# Hierarchical groups: brackets spanning multiple segments
+dft_groups = [
+    {
+        "segment_indices": [6, 7, 8, 9, 10],
+        "label": "correlation with sinusoid\nat frequency k",
+        "color": "#FF8C42",
+        "level": 1,
+    },
+    {
+        "segment_indices": [3, 4, 5, 6, 7, 8, 9, 10],
+        "label": "for each sample, compare to a sinusoid and accumulate",
+        "color": "#FFE66D",
+        "level": 2,
+    },
+]
+
+dft_description = (
+    "The DFT decomposes a discrete signal of N samples into N frequency components.\n"
+    "Each output bin X_k measures how much the signal correlates with a sinusoid at frequency k."
+)
+
+dft_use_cases = [
+    "Audio processing: Identifying the dominant frequencies in a sound recording",
+    "Structural biology: Processing electron density maps in X-ray crystallography",
+]
+
+
 def main():
     print("Rendering DFT equation annotation...")
     fig = annotate_equation(
@@ -87,6 +114,9 @@ def main():
         equation_fontsize=38,
         label_fontsize=11,
         show_connectors=True,
+        groups=dft_groups,
+        description=dft_description,
+        use_cases=dft_use_cases,
     )
 
     print("Saving output:")

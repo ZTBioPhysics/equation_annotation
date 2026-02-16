@@ -18,13 +18,18 @@ Equation_Annotator/
 
 - **Renderer:** matplotlib (no external LaTeX required; optional `use_latex=True`)
 - **Input:** Python list of segment dicts with `latex`, `color`, optional `label` and `superscript`
+- **Hierarchical groups:** optional `groups` list with `segment_indices`, `label`, `color`, `level` — renders brackets spanning multiple segments
+- **Description & use cases:** optional `description` string and `use_cases` list rendered below groups
 - **Output:** PNG (300 DPI) + SVG via `save_figure()` helper
 - **Two-pass rendering:** measure text extents first, then compute layout and render
+- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → use cases), converts to figure fractions
 
 ## Key Design Decisions
 
 - `superscript: True` flag on segments renders them smaller (65% fontsize) and raised
 - Label overlap resolution: iterative push-apart algorithm
+- Connector lines use visual center offset (40% of bbox width) to better align with glyph centers
+- Group brackets: horizontal line with end ticks, italic labels centered below
 - Dual interface: editable constants at top of file (Spyder-friendly) + argparse CLI
 - matplotlib mathtext by default (no LaTeX install needed); `\displaystyle` not supported in mathtext mode
 
@@ -37,15 +42,15 @@ conda activate equation_annotator
 ## Current Status
 
 - Core rendering works for both simple (Euler's identity) and complex (DFT) equations
-- CLI supports JSON input files
+- **Hierarchical labeling implemented** — multi-level group brackets with labels
+- **Description + use cases** — rendered below groups as italic text and bulleted list
+- CLI supports JSON input files (including `groups`, `description`, `use_cases` fields)
 - PNG + SVG output at 300 DPI
-- Layout tightened but may need further adjustment after hierarchical labeling is added
+- Dynamic vertical layout adapts figure height to content
 - Git repo initialized, no commits yet
 
 ## Pending / Next Steps
 
-1. **Hierarchical / multilayer labeling** — support groupings of terms, not just individual terms. E.g., a bracket spanning multiple segments with a group-level label like "the exponent" or "correlation with frequency k". This is the primary next feature.
-2. **Equation description** — a plain-English description of the equation in simple yet accurate terms, rendered as a text block (above or below the annotation)
-3. **Practical use cases** — 2 examples per equation from: physics, biology/biochemistry, comp sci, engineering, or finance
-4. Revisit spacing/tightness after multilayer labeling is working
-5. Add more example equations (Bayes' theorem, Euler-Lagrange, etc.)
+1. Fine-tune connector line alignment for equations with very tall symbols
+2. Add more example equations (Bayes' theorem, Euler-Lagrange, etc.)
+3. Consider alternative connector styles (dotted, curved) as options

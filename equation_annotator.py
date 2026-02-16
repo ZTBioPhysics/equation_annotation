@@ -40,6 +40,8 @@ DPI = 300
 SHOW_CONNECTORS = True
 USE_LATEX = False           # Set True if you have LaTeX installed
 SHOW_PLOT = False
+GROUP_FONTSIZE = 11
+DESCRIPTION_FONTSIZE = 11
 # ============================================================================
 
 
@@ -129,7 +131,7 @@ def _measure_all(segments, equation_fontsize, label_fontsize, use_latex,
 
 
 def _auto_figsize(seg_sizes, label_sizes, segments, spacing_px,
-                  equation_fontsize, title, fig_dpi):
+                  equation_fontsize, title, fig_dpi, layout=None):
     """Estimate figure dimensions from content measurements."""
     # Total equation width, accounting for superscripts having no extra spacing
     total_eq_width = 0
@@ -140,21 +142,23 @@ def _auto_figsize(seg_sizes, label_sizes, segments, spacing_px,
             if not next_is_sup:
                 total_eq_width += spacing_px
 
-    max_eq_height = max(h for _, h in seg_sizes)
-
-    max_label_height = 0
-    for ls in label_sizes:
-        if ls is not None:
-            max_label_height = max(max_label_height, ls[1])
-
-    title_height = (equation_fontsize * 1.4) if title else 0
-    connector_gap = equation_fontsize * 0.8
-    vertical_px = (
-        title_height + max_eq_height + connector_gap
-        + max_label_height + equation_fontsize * 1.0
-    )
-
     horizontal_px = total_eq_width + equation_fontsize * 3
+
+    # Use dynamic layout for vertical sizing if available
+    if layout is not None:
+        vertical_px = layout["total_height_px"]
+    else:
+        max_eq_height = max(h for _, h in seg_sizes)
+        max_label_height = 0
+        for ls in label_sizes:
+            if ls is not None:
+                max_label_height = max(max_label_height, ls[1])
+        title_height = (equation_fontsize * 1.4) if title else 0
+        connector_gap = equation_fontsize * 0.8
+        vertical_px = (
+            title_height + max_eq_height + connector_gap
+            + max_label_height + equation_fontsize * 1.0
+        )
 
     width_in = max(horizontal_px / fig_dpi, 6)
     height_in = max(vertical_px / fig_dpi, 2.5)
@@ -201,6 +205,265 @@ def _resolve_label_overlaps(label_centers_px, label_widths_px, min_gap_px=8):
         label_centers_px[idx] = cx
 
 
+def _validate_groups(groups, num_segments):
+    """Validate group definitions against segment list.
+
+    Raises ValueError on invalid groups.
+    """
+    for gi, g in enumerate(groups):
+        indices = g.get("segment_indices", [])
+        if not indices:
+            raise ValueError(f"Group {gi}: 'segment_indices' is empty.")
+        for idx in indices:
+            if idx < 0 or idx >= num_segments:
+                raise ValueError(
+                    f"Group {gi}: segment index {idx} out of range "
+                    f"(0..{num_segments - 1})."
+                )
+        level = g.get("level", 1)
+        if level < 1:
+            raise ValueError(f"Group {gi}: level must be >= 1, got {level}.")
+
+    # Check for overlaps within the same level
+    by_level = {}
+    for gi, g in enumerate(groups):
+        level = g.get("level", 1)
+        by_level.setdefault(level, []).append((gi, set(g["segment_indices"])))
+    for level, entries in by_level.items():
+        for i in range(len(entries)):
+            for j in range(i + 1, len(entries)):
+                overlap = entries[i][1] & entries[j][1]
+                if overlap:
+                    raise ValueError(
+                        f"Groups {entries[i][0]} and {entries[j][0]} overlap "
+                        f"on level {level} at indices {sorted(overlap)}."
+                    )
+
+
+def _compute_vertical_layout(
+    equation_fontsize, title, has_labels, groups, description, use_cases,
+    group_fontsize, description_fontsize, fig_dpi,
+):
+    """Compute y-positions (figure-fraction) for all vertical layers.
+
+    Works top-down in pixel space, then converts to figure fractions.
+
+    Returns
+    -------
+    layout : dict
+        Keys: 'title_y', 'eq_y', 'label_y', 'group_levels' (dict of
+        level -> bracket_y, label_y), 'desc_y', 'use_cases_y',
+        'total_height_px'.
+    """
+    y_cursor = 0  # pixels from top
+
+    # Title
+    if title:
+        title_top = y_cursor + equation_fontsize * 0.4
+        title_height = equation_fontsize * 2.0
+        y_cursor = title_top + title_height
+    else:
+        title_top = None
+        y_cursor += equation_fontsize * 0.4
+
+    # Equation — reserve space for tall symbols (summation with limits)
+    eq_gap = equation_fontsize * 0.8
+    y_cursor += eq_gap
+    eq_center = y_cursor + equation_fontsize * 1.0
+    y_cursor = eq_center + equation_fontsize * 1.5
+
+    # Mark the bottom of the equation zone (below all symbols incl. limits)
+    eq_bottom = y_cursor
+
+    # Connector + per-term labels — generous gap so labels sit well below
+    if has_labels:
+        connector_gap = equation_fontsize * 2.2
+        y_cursor += connector_gap
+        label_top = y_cursor
+        label_height = equation_fontsize * 1.4  # approximate multi-line label
+        y_cursor = label_top + label_height
+    else:
+        label_top = None
+
+    # Group levels
+    max_level = 0
+    if groups:
+        max_level = max(g.get("level", 1) for g in groups)
+    group_level_positions = {}
+    for lv in range(1, max_level + 1):
+        gap = equation_fontsize * 0.4
+        y_cursor += gap
+        bracket_y = y_cursor
+        y_cursor += equation_fontsize * 0.15  # bracket height (tick)
+        group_label_y = y_cursor + equation_fontsize * 0.1
+        group_label_height = group_fontsize * 2.5  # allow 2 lines
+        y_cursor = group_label_y + group_label_height
+        group_level_positions[lv] = {
+            "bracket_y": bracket_y,
+            "label_y": group_label_y,
+        }
+
+    # Description
+    if description:
+        gap = equation_fontsize * 0.6
+        y_cursor += gap
+        desc_y = y_cursor
+        # Count lines in description for height
+        desc_lines = description.count("\n") + 1
+        desc_height = description_fontsize * 1.6 * desc_lines
+        y_cursor = desc_y + desc_height
+    else:
+        desc_y = None
+
+    # Use cases
+    if use_cases:
+        gap = equation_fontsize * 0.3
+        y_cursor += gap
+        uc_y = y_cursor
+        uc_height = description_fontsize * 1.8 * len(use_cases)
+        y_cursor = uc_y + uc_height
+    else:
+        uc_y = None
+
+    # Bottom padding
+    y_cursor += equation_fontsize * 0.6
+
+    total_height_px = y_cursor
+
+    # Convert to figure fractions (top-down -> matplotlib bottom-up)
+    def to_frac(px):
+        if px is None:
+            return None
+        return 1.0 - (px / total_height_px)
+
+    layout = {
+        "title_y": to_frac(title_top + equation_fontsize * 0.6) if title else None,
+        "eq_y": to_frac(eq_center),
+        "connector_top_y": to_frac(eq_bottom),
+        "label_y": to_frac(label_top) if has_labels else None,
+        "group_levels": {
+            lv: {
+                "bracket_y": to_frac(pos["bracket_y"]),
+                "label_y": to_frac(pos["label_y"]),
+            }
+            for lv, pos in group_level_positions.items()
+        },
+        "desc_y": to_frac(desc_y) if description else None,
+        "use_cases_y": to_frac(uc_y) if use_cases else None,
+        "total_height_px": total_height_px,
+    }
+    return layout
+
+
+def _render_bracket(fig, x_left_frac, x_right_frac, y_frac, color,
+                    tick_height=0.015, linewidth=1.5):
+    """Draw a bracket (horizontal line with end ticks) in figure coordinates."""
+    # Horizontal line
+    h_line = matplotlib.lines.Line2D(
+        [x_left_frac, x_right_frac],
+        [y_frac, y_frac],
+        transform=fig.transFigure,
+        color=color, alpha=0.7, linewidth=linewidth,
+    )
+    fig.add_artist(h_line)
+    # Left tick
+    l_tick = matplotlib.lines.Line2D(
+        [x_left_frac, x_left_frac],
+        [y_frac + tick_height, y_frac],
+        transform=fig.transFigure,
+        color=color, alpha=0.7, linewidth=linewidth,
+    )
+    fig.add_artist(l_tick)
+    # Right tick
+    r_tick = matplotlib.lines.Line2D(
+        [x_right_frac, x_right_frac],
+        [y_frac + tick_height, y_frac],
+        transform=fig.transFigure,
+        color=color, alpha=0.7, linewidth=linewidth,
+    )
+    fig.add_artist(r_tick)
+
+
+def _render_groups(fig, groups, seg_x_px, seg_sizes, fig_width_px, layout,
+                   group_fontsize):
+    """Render group brackets and labels."""
+    for g in groups:
+        indices = g["segment_indices"]
+        level = g.get("level", 1)
+        color = g.get("color", "#AAAAAA")
+        label = g.get("label", "")
+
+        level_pos = layout["group_levels"].get(level)
+        if level_pos is None:
+            continue
+
+        # Bracket spans from left edge of first segment to right edge of last
+        first_idx = min(indices)
+        last_idx = max(indices)
+        x_left_px = seg_x_px[first_idx]
+        x_right_px = seg_x_px[last_idx] + seg_sizes[last_idx][0]
+
+        x_left_frac = x_left_px / fig_width_px
+        x_right_frac = x_right_px / fig_width_px
+        bracket_y = level_pos["bracket_y"]
+
+        _render_bracket(fig, x_left_frac, x_right_frac, bracket_y, color)
+
+        # Label centered below bracket
+        if label:
+            x_center_frac = (x_left_frac + x_right_frac) / 2
+            label_y = level_pos["label_y"]
+            fig.text(
+                x_center_frac, label_y,
+                label,
+                fontsize=group_fontsize,
+                color=color,
+                ha="center", va="top",
+                usetex=False,
+                transform=fig.transFigure,
+                linespacing=1.3,
+                fontstyle="italic",
+            )
+
+
+def _render_description(fig, description, layout, description_fontsize,
+                        fig_width_px):
+    """Render the plain-English description text block."""
+    desc_y = layout["desc_y"]
+    if desc_y is None:
+        return
+    fig.text(
+        0.5, desc_y,
+        description,
+        fontsize=description_fontsize,
+        color="#BBBBBB",
+        ha="center", va="top",
+        usetex=False,
+        transform=fig.transFigure,
+        linespacing=1.4,
+        fontstyle="italic",
+        wrap=True,
+    )
+
+
+def _render_use_cases(fig, use_cases, layout, description_fontsize):
+    """Render bulleted use-case list."""
+    uc_y = layout["use_cases_y"]
+    if uc_y is None:
+        return
+    bullet_text = "\n".join(f"\u2022  {uc}" for uc in use_cases)
+    fig.text(
+        0.5, uc_y,
+        bullet_text,
+        fontsize=description_fontsize * 0.9,
+        color="#999999",
+        ha="center", va="top",
+        usetex=False,
+        transform=fig.transFigure,
+        linespacing=1.6,
+    )
+
+
 def annotate_equation(
     segments,
     *,
@@ -215,6 +478,11 @@ def annotate_equation(
     show_connectors=True,
     use_latex=False,
     spacing_scale=1.0,
+    groups=None,
+    description=None,
+    use_cases=None,
+    group_fontsize=None,
+    description_fontsize=None,
 ):
     """Create a color-coded annotated equation figure.
 
@@ -246,11 +514,35 @@ def annotate_equation(
         Use system LaTeX for rendering (requires LaTeX installation).
     spacing_scale : float
         Multiplier for spacing between equation segments.
+    groups : list of dict, optional
+        Hierarchical groupings. Each dict has 'segment_indices' (list of int),
+        'label' (str), 'color' (str), and 'level' (int, default 1).
+    description : str, optional
+        Plain-English description rendered below groups.
+    use_cases : list of str, optional
+        Practical use-case examples rendered as a bulleted list.
+    group_fontsize : int, optional
+        Font size for group labels (default: GROUP_FONTSIZE).
+    description_fontsize : int, optional
+        Font size for description and use cases (default: DESCRIPTION_FONTSIZE).
 
     Returns
     -------
     matplotlib.figure.Figure
     """
+    if group_fontsize is None:
+        group_fontsize = GROUP_FONTSIZE
+    if description_fontsize is None:
+        description_fontsize = DESCRIPTION_FONTSIZE
+    if groups is None:
+        groups = []
+    if use_cases is None:
+        use_cases = []
+
+    # Validate groups
+    if groups:
+        _validate_groups(groups, len(segments))
+
     if use_latex:
         plt.rcParams["text.usetex"] = True
         plt.rcParams["font.family"] = "serif"
@@ -261,6 +553,15 @@ def annotate_equation(
     fig_dpi = 100
     spacing_px = equation_fontsize * 0.3 * spacing_scale
     sup_fontsize = equation_fontsize * 0.65
+
+    # Check if any segments have labels
+    has_labels = any(seg.get("label") for seg in segments)
+
+    # Compute dynamic vertical layout
+    layout = _compute_vertical_layout(
+        equation_fontsize, title, has_labels, groups, description, use_cases,
+        group_fontsize, description_fontsize, fig_dpi,
+    )
 
     # Initial measurement with a guess figsize for auto-sizing
     init_figsize = figsize or (14, 4)
@@ -273,6 +574,7 @@ def annotate_equation(
         figsize = _auto_figsize(
             seg_sizes, label_sizes, segments, spacing_px,
             equation_fontsize, title, fig_dpi,
+            layout=layout,
         )
 
     # Re-measure with final figsize
@@ -282,7 +584,6 @@ def annotate_equation(
     )
 
     fig_width_px = figsize[0] * fig_dpi
-    fig_height_px = figsize[1] * fig_dpi
 
     # --- Compute horizontal layout (pixel positions) ---
     total_eq_width = 0
@@ -296,16 +597,19 @@ def annotate_equation(
     x_start = (fig_width_px - total_eq_width) / 2
     x_cursor = x_start
 
-    # Vertical positions (figure fractions)
-    eq_y = 0.55 if title else 0.58
-    label_y = 0.15
+    # Get y-positions from layout
+    eq_y = layout["eq_y"]
+    label_y = layout["label_y"]
 
     seg_x_px = []       # left edge x in pixels
     seg_center_px = []   # center x in pixels (for connectors)
+    # Visual center of math glyphs sits slightly left of bounding-box
+    # center (subscripts, limits, etc. extend the bbox rightward).
+    VISUAL_CENTER = 0.4
 
     for i, (seg, (w, h)) in enumerate(zip(segments, seg_sizes)):
         seg_x_px.append(x_cursor)
-        seg_center_px.append(x_cursor + w / 2)
+        seg_center_px.append(x_cursor + w * VISUAL_CENTER)
         x_cursor += w
         if i < len(segments) - 1:
             next_is_sup = segments[i + 1].get("superscript", False)
@@ -331,10 +635,14 @@ def annotate_equation(
     fig.set_facecolor(background_color)
 
     # Render equation segments
+    # Superscript raise is relative to equation position in figure fraction
+    sup_raise = layout["total_height_px"] * 0.06 / layout["total_height_px"]
+    # Use a fraction of figure height for superscript offset
+    sup_offset = 0.06 * (figsize[1] / max(figsize[1], 2.5))
     for i, seg in enumerate(segments):
         is_sup = seg.get("superscript", False)
         fs = sup_fontsize if is_sup else equation_fontsize
-        y = eq_y + 0.12 if is_sup else eq_y
+        y = eq_y + sup_offset if is_sup else eq_y
 
         x_frac = seg_x_px[i] / fig_width_px
         fig.text(
@@ -348,26 +656,31 @@ def annotate_equation(
         )
 
     # Render labels
-    for i, seg in enumerate(segments):
-        if label_centers_px[i] is None:
-            continue
-        label = seg.get("label", "")
-        if not label:
-            continue
-        x_frac = label_centers_px[i] / fig_width_px
-        fig.text(
-            x_frac, label_y,
-            label,
-            fontsize=label_fontsize,
-            color=seg.get("color", "white"),
-            ha="center", va="top",
-            usetex=False,
-            transform=fig.transFigure,
-            linespacing=1.4,
-        )
+    if has_labels and label_y is not None:
+        for i, seg in enumerate(segments):
+            if label_centers_px[i] is None:
+                continue
+            label = seg.get("label", "")
+            if not label:
+                continue
+            x_frac = label_centers_px[i] / fig_width_px
+            fig.text(
+                x_frac, label_y,
+                label,
+                fontsize=label_fontsize,
+                color=seg.get("color", "white"),
+                ha="center", va="top",
+                usetex=False,
+                transform=fig.transFigure,
+                linespacing=1.4,
+            )
 
-    # Render connectors
-    if show_connectors:
+    # Render connectors (straight lines from below equation to labels)
+    if show_connectors and has_labels and label_y is not None:
+        connector_top_y = layout["connector_top_y"]
+        fig_height_px = figsize[1] * fig_dpi
+        gap = connector_top_y - label_y
+
         for i, seg in enumerate(segments):
             if label_centers_px[i] is None:
                 continue
@@ -376,24 +689,28 @@ def annotate_equation(
 
             seg_cx_frac = seg_center_px[i] / fig_width_px
             lab_cx_frac = label_centers_px[i] / fig_width_px
+            line_bot = label_y + 0.01
 
-            line_top = (eq_y - 0.08) if not is_sup else (eq_y + 0.02)
-            line_bot = label_y + 0.04
+            if is_sup:
+                seg_h_frac = seg_sizes[i][1] / fig_height_px
+                line_top = (eq_y + sup_offset) - (seg_h_frac / 2) - 0.015
+            else:
+                line_top = connector_top_y - gap * 0.20
+
+            line_top = max(line_top, line_bot + 0.02)
 
             line = matplotlib.lines.Line2D(
                 [seg_cx_frac, lab_cx_frac],
                 [line_top, line_bot],
                 transform=fig.transFigure,
-                color=color,
-                alpha=0.4,
-                linewidth=1.0,
+                color=color, alpha=0.4, linewidth=1.0,
             )
             fig.add_artist(line)
 
     # Render title
-    if title:
+    if title and layout["title_y"] is not None:
         fig.text(
-            0.5, 0.90,
+            0.5, layout["title_y"],
             title,
             fontsize=title_fontsize,
             color=title_color,
@@ -402,6 +719,22 @@ def annotate_equation(
             transform=fig.transFigure,
             fontweight="bold",
         )
+
+    # Render group brackets
+    if groups:
+        _render_groups(
+            fig, groups, seg_x_px, seg_sizes, fig_width_px, layout,
+            group_fontsize,
+        )
+
+    # Render description
+    if description:
+        _render_description(fig, description, layout, description_fontsize,
+                            fig_width_px)
+
+    # Render use cases
+    if use_cases:
+        _render_use_cases(fig, use_cases, layout, description_fontsize)
 
     return fig
 
@@ -460,6 +793,14 @@ Example JSON input file:
         help="Use system LaTeX for rendering.",
     )
     parser.add_argument(
+        "--group-fontsize", type=int, default=None,
+        help=f"Group label font size (default: {GROUP_FONTSIZE}).",
+    )
+    parser.add_argument(
+        "--desc-fontsize", type=int, default=None,
+        help=f"Description font size (default: {DESCRIPTION_FONTSIZE}).",
+    )
+    parser.add_argument(
         "--show", action="store_true",
         help="Display the figure interactively.",
     )
@@ -469,6 +810,9 @@ Example JSON input file:
     input_file = args.input or INPUT_FILE
     segments = INPUT_SEGMENTS
     title = None
+    groups = None
+    description = None
+    use_cases = None
 
     if input_file:
         with open(input_file) as f:
@@ -478,6 +822,9 @@ Example JSON input file:
         elif isinstance(data, dict):
             segments = data["segments"]
             title = data.get("title", title)
+            groups = data.get("groups", None)
+            description = data.get("description", None)
+            use_cases = data.get("use_cases", None)
         else:
             raise ValueError("JSON must be a list of segments or a dict with 'segments' key.")
 
@@ -496,6 +843,8 @@ Example JSON input file:
     connectors = not args.no_connectors and SHOW_CONNECTORS
     use_latex = args.use_latex or USE_LATEX
     show = args.show or SHOW_PLOT
+    group_fs = args.group_fontsize or GROUP_FONTSIZE
+    desc_fs = args.desc_fontsize or DESCRIPTION_FONTSIZE
 
     print(f"Rendering {len(segments)} segments...")
     fig = annotate_equation(
@@ -507,6 +856,11 @@ Example JSON input file:
         dpi=dpi,
         show_connectors=connectors,
         use_latex=use_latex,
+        groups=groups,
+        description=description,
+        use_cases=use_cases,
+        group_fontsize=group_fs,
+        description_fontsize=desc_fs,
     )
 
     print("Saving output:")
