@@ -242,7 +242,7 @@ def _validate_groups(groups, num_segments):
 
 def _compute_vertical_layout(
     equation_fontsize, title, has_labels, groups, description, use_cases,
-    group_fontsize, description_fontsize, fig_dpi,
+    group_fontsize, description_fontsize, fig_dpi, constants=None,
 ):
     """Compute y-positions (figure-fraction) for all vertical layers.
 
@@ -315,6 +315,16 @@ def _compute_vertical_layout(
     else:
         desc_y = None
 
+    # Constants
+    if constants:
+        gap = equation_fontsize * 0.3
+        y_cursor += gap
+        const_y = y_cursor
+        const_height = description_fontsize * 1.6 * (len(constants) + 1)  # +1 for header
+        y_cursor = const_y + const_height
+    else:
+        const_y = None
+
     # Use cases
     if use_cases:
         gap = equation_fontsize * 0.3
@@ -349,6 +359,7 @@ def _compute_vertical_layout(
             for lv, pos in group_level_positions.items()
         },
         "desc_y": to_frac(desc_y) if description else None,
+        "constants_y": to_frac(const_y) if constants else None,
         "use_cases_y": to_frac(uc_y) if use_cases else None,
         "total_height_px": total_height_px,
     }
@@ -446,6 +457,27 @@ def _render_description(fig, description, layout, description_fontsize,
     )
 
 
+def _render_constants(fig, constants, layout, description_fontsize):
+    """Render the constants section with header and symbol descriptions."""
+    const_y = layout["constants_y"]
+    if const_y is None:
+        return
+    fs = description_fontsize * 0.95
+    header = "Constants:"
+    body_lines = [f"{c['symbol']} \u2014 {c['description']}" for c in constants]
+    full_text = header + "\n" + "\n".join(body_lines)
+    fig.text(
+        0.5, const_y,
+        full_text,
+        fontsize=fs,
+        color="#AAAAAA",
+        ha="center", va="top",
+        usetex=False,
+        transform=fig.transFigure,
+        linespacing=1.5,
+    )
+
+
 def _render_use_cases(fig, use_cases, layout, description_fontsize):
     """Render bulleted use-case list."""
     uc_y = layout["use_cases_y"]
@@ -481,6 +513,7 @@ def annotate_equation(
     groups=None,
     description=None,
     use_cases=None,
+    constants=None,
     group_fontsize=None,
     description_fontsize=None,
 ):
@@ -521,6 +554,9 @@ def annotate_equation(
         Plain-English description rendered below groups.
     use_cases : list of str, optional
         Practical use-case examples rendered as a bulleted list.
+    constants : list of dict, optional
+        Mathematical constants with 'symbol' and 'description' keys.
+        Rendered between description and use cases.
     group_fontsize : int, optional
         Font size for group labels (default: GROUP_FONTSIZE).
     description_fontsize : int, optional
@@ -538,6 +574,8 @@ def annotate_equation(
         groups = []
     if use_cases is None:
         use_cases = []
+    if constants is None:
+        constants = []
 
     # Validate groups
     if groups:
@@ -560,7 +598,7 @@ def annotate_equation(
     # Compute dynamic vertical layout
     layout = _compute_vertical_layout(
         equation_fontsize, title, has_labels, groups, description, use_cases,
-        group_fontsize, description_fontsize, fig_dpi,
+        group_fontsize, description_fontsize, fig_dpi, constants=constants,
     )
 
     # Initial measurement with a guess figsize for auto-sizing
@@ -732,6 +770,10 @@ def annotate_equation(
         _render_description(fig, description, layout, description_fontsize,
                             fig_width_px)
 
+    # Render constants
+    if constants:
+        _render_constants(fig, constants, layout, description_fontsize)
+
     # Render use cases
     if use_cases:
         _render_use_cases(fig, use_cases, layout, description_fontsize)
@@ -813,6 +855,7 @@ Example JSON input file:
     groups = None
     description = None
     use_cases = None
+    constants = None
 
     if input_file:
         with open(input_file) as f:
@@ -825,6 +868,7 @@ Example JSON input file:
             groups = data.get("groups", None)
             description = data.get("description", None)
             use_cases = data.get("use_cases", None)
+            constants = data.get("constants", None)
         else:
             raise ValueError("JSON must be a list of segments or a dict with 'segments' key.")
 
@@ -859,6 +903,7 @@ Example JSON input file:
         groups=groups,
         description=description,
         use_cases=use_cases,
+        constants=constants,
         group_fontsize=group_fs,
         description_fontsize=desc_fs,
     )

@@ -7,6 +7,7 @@ Color-coded educational math equation annotations (Stuart Riffle / Reddit DFT st
 ```
 Equation_Annotator/
 ├── equation_annotator.py   # Main module (rendering logic + CLI)
+├── auto_annotate.py        # Auto-annotation via Claude Code
 ├── example_dft.py          # DFT demo script
 ├── requirements.txt        # matplotlib>=3.7
 ├── CLAUDE.md
@@ -20,9 +21,10 @@ Equation_Annotator/
 - **Input:** Python list of segment dicts with `latex`, `color`, optional `label` and `superscript`
 - **Hierarchical groups:** optional `groups` list with `segment_indices`, `label`, `color`, `level` — renders brackets spanning multiple segments
 - **Description & use cases:** optional `description` string and `use_cases` list rendered below groups
+- **Constants section:** optional `constants` list of `{symbol, description}` dicts — rendered between description and use cases
 - **Output:** PNG (300 DPI) + SVG via `save_figure()` helper
 - **Two-pass rendering:** measure text extents first, then compute layout and render
-- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → use cases), converts to figure fractions
+- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → constants → use cases), converts to figure fractions
 
 ## Key Design Decisions
 
@@ -39,12 +41,61 @@ Equation_Annotator/
 conda activate equation_annotator
 ```
 
+## Auto-Annotation Workflow (via Claude Code)
+
+`auto_annotate.py` enables fully automated annotation — provide just an equation name and Claude Code generates the full spec.
+
+### How it works
+1. User asks Claude Code: "annotate Bayes' theorem with 2 hierarchy levels"
+2. Claude Code reads `GENERATION_PROMPT` from `auto_annotate.py`
+3. Claude Code generates a spec dict and writes it to a JSON file (e.g., `output/bayes_theorem.json`)
+4. Claude Code runs `python auto_annotate.py --spec-file output/bayes_theorem.json` → PNG + SVG + JSON output
+- The spec JSON is auto-saved alongside the figures for reproducibility
+- No editing or resetting of `auto_annotate.py` needed
+- To re-render later: `python auto_annotate.py --spec-file output/bayes_theorem.json`
+
+### Key components in `auto_annotate.py`
+- **`GENERATION_PROMPT`** — detailed instructions for producing annotation specs (colors, segmentation, labels, groups, description, use cases). Tuning this prompt improves all future annotations.
+- **`EXAMPLE_SPEC`** — DFT reference showing the exact format expected
+- **`render_from_spec(spec)`** — convenience function: spec dict → annotated figure
+- **CLI flags:** `--equation`, `--levels`, `--use-cases`, `--output`, `--name`, `--show`, `--spec-file`, `--use-example`, `--print-prompt`, `--spec-dir`, `--batch-file`, `--equations-list`
+
+### Batch rendering
+Three modes for rendering multiple equations at once:
+
+```bash
+# Render all JSON specs in a directory
+python auto_annotate.py --spec-dir output/
+
+# Render from a JSON array of specs
+python auto_annotate.py --batch-file my_batch.json
+
+# Check which equations have specs, render existing, report missing
+python auto_annotate.py --equations-list equations.json
+```
+
+**`--equations-list` format** — JSON array of strings or dicts:
+```json
+[
+  "Bayes' Theorem",
+  {"name": "Euler-Lagrange Equation", "levels": 2, "use_cases": 3},
+  "Schrödinger Equation"
+]
+```
+Existing specs (matched by snake_case filename in output dir) are rendered. Missing ones are reported so Claude Code can generate them, then re-run.
+
+### No external API needed
+Claude Code IS the LLM — it reads the prompt in-context and generates the spec directly. No API keys or SDK required.
+
 ## Current Status
 
 - Core rendering works for both simple (Euler's identity) and complex (DFT) equations
 - **Hierarchical labeling implemented** — multi-level group brackets with labels
 - **Description + use cases** — rendered below groups as italic text and bulleted list
-- CLI supports JSON input files (including `groups`, `description`, `use_cases` fields)
+- **Auto-annotation via Claude Code** — `auto_annotate.py` with `GENERATION_PROMPT` and `render_from_spec()`
+- **Batch rendering** — `--spec-dir`, `--batch-file`, `--equations-list` for multi-equation workflows
+- **Constants section** — optional list of mathematical constants with symbol + description, rendered between description and use cases
+- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `constants` fields)
 - PNG + SVG output at 300 DPI
 - Dynamic vertical layout adapts figure height to content
 - Git repo initialized, no commits yet
