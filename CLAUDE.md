@@ -34,6 +34,7 @@ Equation_Annotator/
 - Group brackets: horizontal line with end ticks, italic labels centered below
 - Dual interface: editable constants at top of file (Spyder-friendly) + argparse CLI
 - matplotlib mathtext by default (no LaTeX install needed); `\displaystyle` not supported in mathtext mode
+- Symbols section uses `ha="center"` + `multialignment="left"` to stay centered (avoids `bbox_inches='tight'` asymmetry)
 
 ## Conda Environment
 
