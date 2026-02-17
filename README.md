@@ -4,6 +4,8 @@ Create color-coded educational math equation annotations — inspired by [Stuart
 
 Each part of a LaTeX equation gets a distinct color with a descriptive label underneath, all rendered on a dark background.
 
+Includes an **Interactive Equation Explorer** (`generate_explorer.py`) that generates self-contained HTML pages with live Plotly plots and parameter sliders — see [Interactive Explorer](#interactive-explorer) below.
+
 ## Installation
 
 ```bash
@@ -105,6 +107,56 @@ The script supports two usage modes:
 - For superscript segments, write the content as plain math (`$k$`) rather than using `^{}` notation — the tool handles the vertical positioning.
 - Labels support `\n` for line breaks. Keep labels to 2-3 short lines for best appearance.
 - The tool auto-sizes the figure, but you can override with `figsize=(width, height)`.
+
+## Interactive Explorer
+
+`generate_explorer.py` reads the same JSON spec format and produces self-contained interactive HTML files with:
+- Color-coded KaTeX equation with labels, connectors, and group brackets
+- Slider controls for adjustable parameters
+- Live-updating Plotly plot
+
+### Quick Start
+
+```bash
+# From a spec file with an interactive block
+python generate_explorer.py -i examples/michaelis_menten.json --open
+
+# Batch render a directory of specs
+python generate_explorer.py --batch-dir examples/
+
+# Works directly on annotator output specs
+python generate_explorer.py -i output/the_hill_equation.json --open
+
+# Via auto_annotate.py (--explorer is not mutually exclusive with --html)
+python auto_annotate.py --spec-file output/the_hill_equation.json --explorer
+python auto_annotate.py --spec-dir output/ --explorer
+```
+
+### Interactive Block Format
+
+Add an `interactive` block to any spec JSON to define custom sliders and a math.js expression:
+
+```json
+{
+  "title": "Michaelis-Menten Kinetics",
+  "segments": [...],
+  "interactive": {
+    "expression": "Vmax * x / (Km + x)",
+    "variables": [
+      {"name": "x",    "role": "independent", "min": 0, "max": 100},
+      {"name": "Vmax", "role": "parameter",   "default": 10,  "min": 1, "max": 50},
+      {"name": "Km",   "role": "parameter",   "default": 20,  "min": 1, "max": 100}
+    ],
+    "output": {"symbol": "v", "label": "Reaction rate"},
+    "plot": {
+      "x_axis": {"label": "Substrate [S]"},
+      "y_axis": {"label": "Rate v"}
+    }
+  }
+}
+```
+
+Specs without an `interactive` block but with a `plot` block (annotator-native format) are automatically converted: numpy expressions become math.js, parameters become sliders.
 
 ## License
 
