@@ -692,7 +692,7 @@ def verify_plot(plot_spec, verbose=True):
 def _compute_vertical_layout(
     equation_fontsize, title, has_labels, groups, description, use_cases,
     group_fontsize, description_fontsize, fig_dpi, symbols=None, plot=None,
-    fig_width_in=None, insight=None,
+    fig_width_in=None, insight=None, symbols_layout="vertical",
 ):
     """Compute y-positions (figure-fraction) for all vertical layers.
 
@@ -776,8 +776,27 @@ def _compute_vertical_layout(
     symbols_height = 0
     if symbols:
         grouped, active_types, show_headers = _group_symbols_by_type(symbols)
+        type_labels_map = {
+            "variable": "Variables", "parameter": "Parameters",
+            "constant": "Constants",
+        }
 
-        if info_columns:
+        if symbols_layout == "horizontal":
+            # Compact: "Type: sym (name), sym (name), ..." per type
+            pts_to_px = fig_dpi / 72.0
+            char_px = (description_fontsize * 1.1) * pts_to_px * 0.50
+            fig_w_px = (fig_width_in if fig_width_in else 6.0) * fig_dpi
+            horiz_wrap = max(50, int(fig_w_px * 0.85 / char_px))
+            num_lines = 0
+            for ti, t in enumerate(active_types):
+                if ti > 0:
+                    num_lines += 0.5  # half-line gap
+                items = [f"{s.get('symbol', '')} ({s.get('name', '')})"
+                         for s in grouped[t]]
+                line = f"{type_labels_map[t]}:  " + "  \u00b7  ".join(items)
+                num_lines += max(1, -(-len(line) // horiz_wrap))
+            symbols_height = description_fontsize * 2.0 * (num_lines + 0.5)
+        elif info_columns:
             num_lines = 0
             for t in active_types:
                 for s in grouped[t]:
@@ -789,13 +808,13 @@ def _compute_vertical_layout(
             if show_headers:
                 num_lines += len(active_types)
                 num_lines += max(0, len(active_types) - 1)
+            symbols_height = description_fontsize * 2.0 * (num_lines + 0.5)
         else:
             num_lines = sum(len(grouped[t]) for t in active_types)
             if show_headers:
                 num_lines += len(active_types)
                 num_lines += max(0, len(active_types) - 1)
-
-        symbols_height = description_fontsize * 2.0 * (num_lines + 0.5)
+            symbols_height = description_fontsize * 2.0 * (num_lines + 0.5)
 
     # Use cases — compute height
     uc_height = 0
@@ -831,7 +850,7 @@ def _compute_vertical_layout(
 
     # Plot section
     if plot:
-        y_cursor += equation_fontsize * 1.2  # gap above plot
+        y_cursor += equation_fontsize * 2.4  # gap above plot
         plot_top = y_cursor
         plot_height_px = plot.get("height_px", 250)
         y_cursor += plot_height_px
@@ -1034,6 +1053,57 @@ def _render_symbols(fig, symbols, layout, description_fontsize,
         fontsize=fs,
         color="#AAAAAA",
         ha=ha, va="top",
+        multialignment="left",
+        usetex=False,
+        transform=fig.transFigure,
+        linespacing=1.5,
+    )
+
+
+def _render_symbols_horizontal(fig, symbols, layout, description_fontsize,
+                               wrap_width=80):
+    """Render symbols as compact horizontal lines grouped by type.
+
+    Each type is one line: ``Variables: E (cell potential) · T (temperature)``.
+    """
+    symbols_y = layout.get("symbols_y")
+    if symbols_y is None:
+        symbols_y = layout.get("info_y")
+    if symbols_y is None:
+        return
+
+    type_labels = {
+        "variable": "Variables",
+        "parameter": "Parameters",
+        "constant": "Constants",
+    }
+    grouped, active_types, _ = _group_symbols_by_type(symbols)
+
+    lines = []
+    for ti, t in enumerate(active_types):
+        if ti > 0:
+            lines.append("")  # blank separator
+        items = [f"{s.get('symbol', '')} ({s.get('name', '')})"
+                 for s in grouped[t]]
+        line = f"{type_labels[t]}:  " + "  \u00b7  ".join(items)
+        if wrap_width > 0:
+            wrapped = textwrap.fill(
+                line, width=wrap_width,
+                subsequent_indent="        ",
+            )
+            lines.append(wrapped)
+        else:
+            lines.append(line)
+
+    full_text = "\n".join(lines)
+    fs = description_fontsize * 1.1
+
+    fig.text(
+        0.5, symbols_y,
+        full_text,
+        fontsize=fs,
+        color="#AAAAAA",
+        ha="center", va="top",
         multialignment="left",
         usetex=False,
         transform=fig.transFigure,
@@ -1368,7 +1438,6 @@ def annotate_equation(
                 for s in symbols
             ]
     elif display_mode == "insight":
-        description = None
         use_cases = []
         if symbols:
             symbols = [
@@ -1376,6 +1445,9 @@ def annotate_equation(
                  "type": s.get("type", "constant"), "description": ""}
                 for s in symbols
             ]
+
+    # Horizontal symbols layout for compact modes (name-only, no descriptions)
+    symbols_layout = "horizontal" if display_mode in ("insight", "minimal") else "vertical"
 
     # Validate groups
     if groups:
@@ -1423,6 +1495,7 @@ def annotate_equation(
         equation_fontsize, title, has_labels, groups, description, use_cases,
         group_fontsize, description_fontsize, fig_dpi, symbols=symbols,
         plot=plot, fig_width_in=fig_width_in, insight=insight,
+        symbols_layout=symbols_layout,
     )
 
     if figsize is None:
@@ -1600,7 +1673,14 @@ def annotate_equation(
             fig.add_artist(divider)
     else:
         # Single-column centered layout
-        if symbols:
+        if symbols and symbols_layout == "horizontal":
+            horiz_wrap = max(50, int(figsize[0] * fig_dpi * 0.85
+                                     / ((description_fontsize * 1.1)
+                                        * (fig_dpi / 72.0) * 0.50)))
+            _render_symbols_horizontal(fig, symbols, layout,
+                                       description_fontsize,
+                                       wrap_width=horiz_wrap)
+        elif symbols:
             _render_symbols(fig, symbols, layout, description_fontsize)
         if use_cases:
             _render_use_cases(fig, use_cases, layout, description_fontsize)
