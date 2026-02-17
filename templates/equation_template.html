@@ -115,13 +115,14 @@
   .group-labels-row {
     position: relative;
     min-height: 1.2rem;
+    margin-top: 0.2rem;
   }
 
   .group-label-text {
     font-size: 0.75rem;
     font-style: italic;
     text-align: center;
-    white-space: pre-line;
+    white-space: nowrap;
     line-height: 1.35;
     position: absolute;
     top: 0;
@@ -527,10 +528,18 @@ function drawGroupBrackets() {
     });
   });
 
-  // Position group label text centered under their bracket span
+  // Position group labels centered under brackets, then spread overlaps
   document.querySelectorAll('.group-labels-row').forEach(row => {
-    let maxH = 0;
-    row.querySelectorAll('.group-label-text').forEach(el => {
+    const labels = Array.from(row.querySelectorAll('.group-label-text'));
+    if (labels.length === 0) return;
+
+    const rowRect = row.getBoundingClientRect();
+    const rowW = rowRect.width;
+
+    // 1. Center each label under its bracket midpoint (natural width)
+    labels.forEach(el => {
+      el.style.left = '0';
+      el.style.width = '';
       const firstIdx = parseInt(el.getAttribute('data-first'));
       const lastIdx = parseInt(el.getAttribute('data-last'));
       const firstCol = segCols[firstIdx];
@@ -539,12 +548,42 @@ function drawGroupBrackets() {
 
       const firstRect = firstCol.getBoundingClientRect();
       const lastRect = lastCol.getBoundingClientRect();
-      const bracketLeft = firstRect.left - panelRect.left;
-      const bracketWidth = lastRect.right - firstRect.left;
+      const bracketCenter = (firstRect.left + lastRect.right) / 2 - rowRect.left;
+      const labelW = el.getBoundingClientRect().width;
+      let x = bracketCenter - labelW / 2;
 
-      el.style.left = bracketLeft + 'px';
-      el.style.width = bracketWidth + 'px';
+      // Clamp to panel edges
+      x = Math.max(0, Math.min(x, rowW - labelW));
+      el.style.left = x + 'px';
+    });
 
+    // 2. Iterative overlap spreading (same pattern as segment labels)
+    const MIN_GAP = 6;
+    let changed = true;
+    let iterations = 0;
+    while (changed && iterations < 10) {
+      changed = false;
+      iterations++;
+      for (let i = 0; i < labels.length - 1; i++) {
+        const rA = labels[i].getBoundingClientRect();
+        const rB = labels[i + 1].getBoundingClientRect();
+        const overlap = rA.right + MIN_GAP - rB.left;
+        if (overlap > 0) {
+          // Push both apart equally
+          const shiftA = overlap / 2;
+          const shiftB = overlap / 2;
+          const curA = parseFloat(labels[i].style.left) || 0;
+          const curB = parseFloat(labels[i + 1].style.left) || 0;
+          labels[i].style.left = Math.max(0, curA - shiftA) + 'px';
+          labels[i + 1].style.left = Math.min(rowW - labels[i + 1].getBoundingClientRect().width, curB + shiftB) + 'px';
+          changed = true;
+        }
+      }
+    }
+
+    // 3. Set row height to tallest label
+    let maxH = 0;
+    labels.forEach(el => {
       maxH = Math.max(maxH, el.getBoundingClientRect().height);
     });
     row.style.minHeight = maxH + 'px';
