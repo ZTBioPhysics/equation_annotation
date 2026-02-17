@@ -124,6 +124,7 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 - **SymPy plot verification** — `--verify-plot` flag on both CLIs runs singularity/domain analysis and optional cross-validation against `sympy_form`; SymPy is optional (gracefully skipped)
 - **Display modes** — `--display-mode` flag on both CLIs (`full`, `compact`, `plot`, `insight`, `minimal`); also readable from spec JSON via `display_mode` key
 - **Dual-path HTML renderer** — `html_renderer.py` with `--html` and `--pdf` CLI flags; `--html` uses KaTeX/Jinja2 (browser-rendered equations, SVG connectors, system fonts); `--pdf` uses matplotlib path (rasterized, weasyprint-compatible); both support all display modes and dark theme
+- **Group bracket labels** — smart positioning: natural-width labels centered under bracket midpoints, edge-clamped, with iterative overlap spreading for same-level labels; `white-space: nowrap` for single-line display
 - CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols`, `plot`, `insight`, `sympy_form`, `curve_parameters` fields; legacy `constants` still accepted)
 - PNG + SVG output at 300 DPI (matplotlib); HTML + PDF output (html_renderer)
 - Dynamic vertical layout adapts figure height to content
