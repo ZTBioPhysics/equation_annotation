@@ -289,15 +289,6 @@ def _get_group_levels(groups):
     return sorted({g.get("level", 1) for g in groups})
 
 
-def _symbols_by_type(symbols):
-    """Group symbols into a dict keyed by type name."""
-    by_type = {}
-    for s in symbols:
-        t = s.get("type", "constant")
-        by_type.setdefault(t, []).append(s)
-    return by_type
-
-
 # ============================================================================
 # KaTeX / Jinja2 rendering path (for --html)
 # ============================================================================
@@ -337,9 +328,8 @@ def _render_html_katex(spec, display_mode="full", plot_dpi=PLOT_DPI):
 
     # Symbols grouped by type for the template
     symbols = filtered["symbols"]
-    symbols_by_type = _symbols_by_type(symbols) if symbols else {}
-    # Determine whether to show type headers (>1 active type)
-    show_sym_headers = len(symbols_by_type) > 1
+    grouped, _active_types, show_sym_headers = _group_symbols_by_type(symbols)
+    symbols_by_type = {t: syms for t, syms in grouped.items() if syms}
 
     # Render plot as base64 PNG if present after display-mode filtering
     plot_data_uri = None

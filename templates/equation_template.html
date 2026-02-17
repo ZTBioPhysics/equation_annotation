@@ -98,13 +98,13 @@
 
   /* Group brackets */
   .groups-container {
-    margin-top: 0.8rem;
+    margin-top: 0.3rem;
   }
 
   .group-row {
     position: relative;
-    height: 2.4rem;
-    margin-top: 0.3rem;
+    height: 0.9rem;
+    margin-top: 0.1rem;
   }
 
   .group-bracket-svg {
@@ -112,11 +112,19 @@
     height: 100%;
   }
 
+  .group-labels-row {
+    position: relative;
+    min-height: 1.2rem;
+  }
+
   .group-label-text {
     font-size: 0.75rem;
     font-style: italic;
     text-align: center;
-    position: relative;
+    white-space: pre-line;
+    line-height: 1.35;
+    position: absolute;
+    top: 0;
   }
 
   /* Description */
@@ -311,14 +319,16 @@
       <div class="group-row" data-level="{{ level_num }}">
         <svg class="group-bracket-svg" data-level="{{ level_num }}"></svg>
       </div>
-      {% for g in groups if g.level == level_num %}
-      <div class="group-label-text" data-group-index="{{ loop.index0 }}"
-           data-first="{{ g.segment_indices | min }}" data-last="{{ g.segment_indices | max }}"
-           data-level="{{ g.level }}"
-           style="color: {{ g.color }}">
-        {{ g.label }}
+      <div class="group-labels-row" data-level="{{ level_num }}">
+        {% for g in groups if g.level == level_num %}
+        <div class="group-label-text" data-group-index="{{ loop.index0 }}"
+             data-first="{{ g.segment_indices | min }}" data-last="{{ g.segment_indices | max }}"
+             data-level="{{ g.level }}"
+             style="color: {{ g.color }}">
+          {{ g.label }}
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
       {% endfor %}
     </div>
     {% endif %}
@@ -338,10 +348,11 @@
   {% endif %}
 
     {% if show_symbols %}
+    {% set type_pairs = [("variable", "Variables"), ("parameter", "Parameters"), ("constant", "Constants")] %}
     {% if compact_symbols %}
     {# Compact mode: horizontal "Type: sym (name) . sym (name)" #}
     <div class="symbols-compact">
-      {% for type_name, type_label in [("variable", "Variables"), ("parameter", "Parameters"), ("constant", "Constants")] %}
+      {% for type_name, type_label in type_pairs %}
       {% if type_name in symbols_by_type %}
       <p class="sym-compact-line">
         <span class="sym-type-inline">{{ type_label }}:</span>
@@ -355,7 +366,7 @@
     {% else %}
     {# Full mode: grouped with descriptions #}
     <div class="symbols-section">
-      {% for type_name, type_label in [("variable", "Variables"), ("parameter", "Parameters"), ("constant", "Constants")] %}
+      {% for type_name, type_label in type_pairs %}
       {% if type_name in symbols_by_type %}
       {% if show_sym_headers %}
       <div class="sym-type-header">{{ type_label }}</div>
@@ -517,23 +528,26 @@ function drawGroupBrackets() {
   });
 
   // Position group label text centered under their bracket span
-  document.querySelectorAll('.group-label-text').forEach(el => {
-    const firstIdx = parseInt(el.getAttribute('data-first'));
-    const lastIdx = parseInt(el.getAttribute('data-last'));
-    const firstCol = segCols[firstIdx];
-    const lastCol = segCols[lastIdx];
-    if (!firstCol || !lastCol) return;
+  document.querySelectorAll('.group-labels-row').forEach(row => {
+    let maxH = 0;
+    row.querySelectorAll('.group-label-text').forEach(el => {
+      const firstIdx = parseInt(el.getAttribute('data-first'));
+      const lastIdx = parseInt(el.getAttribute('data-last'));
+      const firstCol = segCols[firstIdx];
+      const lastCol = segCols[lastIdx];
+      if (!firstCol || !lastCol) return;
 
-    const firstRect = firstCol.getBoundingClientRect();
-    const lastRect = lastCol.getBoundingClientRect();
-    const bracketLeft = firstRect.left - panelRect.left;
-    const bracketRight = lastRect.right - panelRect.left;
-    const bracketWidth = bracketRight - bracketLeft;
+      const firstRect = firstCol.getBoundingClientRect();
+      const lastRect = lastCol.getBoundingClientRect();
+      const bracketLeft = firstRect.left - panelRect.left;
+      const bracketWidth = lastRect.right - firstRect.left;
 
-    el.style.width = bracketWidth + 'px';
-    el.style.marginLeft = bracketLeft + 'px';
-    el.style.marginRight = 'auto';
-    el.style.textAlign = 'center';
+      el.style.left = bracketLeft + 'px';
+      el.style.width = bracketWidth + 'px';
+
+      maxH = Math.max(maxH, el.getBoundingClientRect().height);
+    });
+    row.style.minHeight = maxH + 'px';
   });
 }
 
