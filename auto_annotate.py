@@ -563,6 +563,25 @@ def render_batch(specs, output_dir="output", show=False, display_mode="full",
     return successes, failures
 
 
+def _render_batch_html(specs, output_dir, display_mode, fmt):
+    """Render multiple specs as HTML/PDF via html_renderer."""
+    from html_renderer import render_from_spec_html
+
+    successes = 0
+    failures = 0
+    for i, spec in enumerate(specs, 1):
+        title = spec.get("title", f"Equation {i}")
+        try:
+            render_from_spec_html(spec, output_dir=output_dir, fmt=fmt,
+                                  display_mode=display_mode)
+            successes += 1
+        except Exception as e:
+            print(f"  FAILED: {title} — {e}")
+            failures += 1
+    print()
+    print(f"Batch complete: {successes} rendered, {failures} failed")
+
+
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -649,6 +668,14 @@ specs are rendered; missing ones are reported for generation.
         "--verify-plot", action="store_true",
         help="Run SymPy-based verification on plot expressions (requires sympy).",
     )
+    parser.add_argument(
+        "--pdf", action="store_true",
+        help="Output as PDF (requires weasyprint>=60). Uses HTML/CSS layout.",
+    )
+    parser.add_argument(
+        "--html", action="store_true",
+        help="Output as HTML. Uses HTML/CSS layout with embedded images.",
+    )
     args = parser.parse_args()
 
     # Resolve settings
@@ -659,6 +686,15 @@ specs are rendered; missing ones are reported for generation.
     output_name = args.name or OUTPUT_NAME
     show = args.show or SHOW_PLOT
     label_style = args.label_style or LABEL_STYLE
+
+    # Determine output format
+    html_fmt = None
+    if args.pdf and args.html:
+        html_fmt = "both"
+    elif args.pdf:
+        html_fmt = "pdf"
+    elif args.html:
+        html_fmt = "html"
 
     # Print prompt mode
     if args.print_prompt:
@@ -683,9 +719,12 @@ specs are rendered; missing ones are reported for generation.
             with open(jf) as f:
                 specs.append(json.load(f))
         print(f"Found {len(specs)} spec files in {spec_dir}")
-        render_batch(specs, output_dir=output_dir, show=show,
-                     display_mode=args.display_mode,
-                     verify_expressions=args.verify_plot)
+        if html_fmt:
+            _render_batch_html(specs, output_dir, args.display_mode, html_fmt)
+        else:
+            render_batch(specs, output_dir=output_dir, show=show,
+                         display_mode=args.display_mode,
+                         verify_expressions=args.verify_plot)
         return
 
     # 2. --batch-file: render list of specs from a single JSON file
@@ -696,9 +735,12 @@ specs are rendered; missing ones are reported for generation.
             print("Error: --batch-file must contain a JSON array of spec dicts.")
             return
         print(f"Loaded {len(specs)} specs from {args.batch_file}")
-        render_batch(specs, output_dir=output_dir, show=show,
-                     display_mode=args.display_mode,
-                     verify_expressions=args.verify_plot)
+        if html_fmt:
+            _render_batch_html(specs, output_dir, args.display_mode, html_fmt)
+        else:
+            render_batch(specs, output_dir=output_dir, show=show,
+                         display_mode=args.display_mode,
+                         verify_expressions=args.verify_plot)
         return
 
     # 3. --equations-list: check which equations have specs, report missing
@@ -738,9 +780,12 @@ specs are rendered; missing ones are reported for generation.
             for sf in have_specs:
                 with open(sf) as f:
                     specs.append(json.load(f))
-            render_batch(specs, output_dir=output_dir, show=show,
-                         display_mode=args.display_mode,
-                         verify_expressions=args.verify_plot)
+            if html_fmt:
+                _render_batch_html(specs, output_dir, args.display_mode, html_fmt)
+            else:
+                render_batch(specs, output_dir=output_dir, show=show,
+                             display_mode=args.display_mode,
+                             verify_expressions=args.verify_plot)
 
         # Report missing
         if missing:
@@ -783,9 +828,14 @@ specs are rendered; missing ones are reported for generation.
         print("Or ask Claude Code to auto-annotate an equation for you.")
         return
 
-    render_from_spec(spec, output_dir, output_name, show,
-                     display_mode=args.display_mode,
-                     verify_expressions=args.verify_plot)
+    if html_fmt:
+        from html_renderer import render_from_spec_html
+        render_from_spec_html(spec, output_dir, output_name, fmt=html_fmt,
+                              display_mode=args.display_mode)
+    else:
+        render_from_spec(spec, output_dir, output_name, show,
+                         display_mode=args.display_mode,
+                         verify_expressions=args.verify_plot)
     print("Done!")
 
 

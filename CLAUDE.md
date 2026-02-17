@@ -6,10 +6,11 @@ Color-coded educational math equation annotations (Stuart Riffle / Reddit DFT st
 
 ```
 Equation_Annotator/
-├── equation_annotator.py   # Main module (rendering logic + CLI)
+├── equation_annotator.py   # Main module (matplotlib rendering logic + CLI)
+├── html_renderer.py        # HTML/CSS renderer (text layout + embedded images → HTML/PDF)
 ├── auto_annotate.py        # Auto-annotation via Claude Code
 ├── example_dft.py          # DFT demo script
-├── requirements.txt        # matplotlib>=3.7, numpy>=1.20, optional sympy>=1.12
+├── requirements.txt        # matplotlib>=3.7, numpy>=1.20, optional sympy>=1.12, weasyprint>=60
 ├── CLAUDE.md
 ├── .gitignore
 └── README.md
@@ -22,8 +23,9 @@ Equation_Annotator/
 - **Hierarchical groups:** optional `groups` list with `segment_indices`, `label`, `color`, `level` — renders brackets spanning multiple segments
 - **Description & use cases:** optional `description` string and `use_cases` list rendered below groups
 - **Symbol definitions:** `symbols` list of `{symbol, name, type, description}` dicts — grouped by type (variable/parameter/constant), rendered between description and use cases. Backward-compatible with legacy `constants` format.
-- **Output:** PNG (300 DPI) + SVG via `save_figure()` helper
-- **Two-pass rendering:** measure text extents first, then compute layout and render
+- **Output:** PNG (300 DPI) + SVG via `save_figure()` helper; HTML and PDF via `html_renderer.py`
+- **Two-pass rendering (matplotlib):** measure text extents first, then compute layout and render
+- **HTML/CSS renderer:** `html_renderer.py` — uses HTML/CSS for text layout (title, description, symbols, use cases, insight), embeds equation card and plot as base64 PNG data URIs. Self-contained output (inline CSS, no external files). PDF export via optional weasyprint.
 - **Annotated plot:** optional `plot` dict with `curves`, `x_range`, `annotations` etc. — renders a dark-themed matplotlib plot below the annotation showing the equation's behavior. Expressions evaluated via `_safe_eval_expr()` (restricted numpy namespace). Supports point, vline, hline, and region annotations.
 - **Insight text:** optional `insight` string rendered below the plot — a paragraph explaining the equation's mathematical behavior and why the plot looks the way it does
 - **SymPy plot verification:** optional `--verify-plot` flag runs `verify_plot()` before rendering — auto-analysis (singularity/domain checks via `_analyze_sympy_expr()`) on every curve, plus cross-validation against a canonical `sympy_form` (via `_cross_validate_curve()`). SymPy is optional; gracefully skipped when not installed.
@@ -47,6 +49,8 @@ Equation_Annotator/
 - Display mode filtering applied early in `annotate_equation()` (after backward-compat conversion, before validation) — nulls out sections so the rest of the function works unchanged
 - SymPy is optional: `try: import sympy` guard at module level; `verify_plot()` returns `SKIPPED` when not installed
 - Plot spec extensions (`sympy_form`, per-curve `curve_parameters`) are fully backward-compatible — existing specs work unchanged
+- HTML renderer is a separate file (`html_renderer.py`) — imports from `equation_annotator.py` but makes no changes to it
+- weasyprint is optional (like sympy) — `--html` works without it; `--pdf` requires it
 
 ## Conda Environment
 
@@ -71,7 +75,7 @@ conda activate equation_annotator
 - **`GENERATION_PROMPT`** — detailed instructions for producing annotation specs (colors, segmentation, labels, groups, description, use cases, plot). Tuning this prompt improves all future annotations.
 - **`EXAMPLE_SPEC`** — DFT reference showing the exact format expected
 - **`render_from_spec(spec)`** — convenience function: spec dict → annotated figure
-- **CLI flags:** `--equation`, `--levels`, `--use-cases`, `--output`, `--name`, `--show`, `--spec-file`, `--use-example`, `--print-prompt`, `--spec-dir`, `--batch-file`, `--equations-list`, `--display-mode` / `-m`
+- **CLI flags:** `--equation`, `--levels`, `--use-cases`, `--output`, `--name`, `--show`, `--spec-file`, `--use-example`, `--print-prompt`, `--spec-dir`, `--batch-file`, `--equations-list`, `--display-mode` / `-m`, `--html`, `--pdf`
 
 ### Batch rendering
 Three modes for rendering multiple equations at once:
@@ -112,8 +116,9 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 - **Insight text** — optional `insight` field in specs; paragraph explaining mathematical behavior, rendered below the plot
 - **SymPy plot verification** — `--verify-plot` flag on both CLIs runs singularity/domain analysis and optional cross-validation against `sympy_form`; SymPy is optional (gracefully skipped)
 - **Display modes** — `--display-mode` flag on both CLIs (`full`, `compact`, `plot`, `insight`, `minimal`); also readable from spec JSON via `display_mode` key
+- **HTML/CSS renderer** — `html_renderer.py` with `--html` and `--pdf` CLI flags; uses HTML/CSS for text layout with embedded matplotlib images; self-contained output (base64 data URIs, inline CSS); dark theme; CSS Grid 2-column layout; PDF via optional weasyprint
 - CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols`, `plot`, `insight`, `sympy_form`, `curve_parameters` fields; legacy `constants` still accepted)
-- PNG + SVG output at 300 DPI
+- PNG + SVG output at 300 DPI (matplotlib); HTML + PDF output (html_renderer)
 - Dynamic vertical layout adapts figure height to content
 - Pushed to GitHub (`main` branch)
 
@@ -123,3 +128,4 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 2. Generate more example equations (Bayes' theorem, Euler-Lagrange, etc.) via auto-annotation workflow
 3. Consider alternative connector styles (dotted, curved) as options
 4. Add `insight` text to existing specs (Nernst, Michaelis-Menten, etc.)
+5. Consider making HTML the default output format
