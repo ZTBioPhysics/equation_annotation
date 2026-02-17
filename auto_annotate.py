@@ -582,6 +582,24 @@ def _render_batch_html(specs, output_dir, display_mode, fmt):
     print(f"Batch complete: {successes} rendered, {failures} failed")
 
 
+def _render_batch_explorer(specs, output_dir):
+    """Render multiple specs as interactive HTML explorers via generate_explorer."""
+    from generate_explorer import render_explorer_from_spec
+
+    successes = 0
+    failures = 0
+    for i, spec in enumerate(specs, 1):
+        title = spec.get("title", f"Equation {i}")
+        try:
+            render_explorer_from_spec(spec, output_dir=output_dir)
+            successes += 1
+        except Exception as e:
+            print(f"  FAILED: {title} — {e}")
+            failures += 1
+    print()
+    print(f"Explorer batch complete: {successes} rendered, {failures} failed")
+
+
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -676,6 +694,11 @@ specs are rendered; missing ones are reported for generation.
         "--html", action="store_true",
         help="Output as HTML. Uses HTML/CSS layout with embedded images.",
     )
+    parser.add_argument(
+        "--explorer", action="store_true",
+        help="Output as interactive HTML explorer with Plotly sliders (generate_explorer.py). "
+             "Compatible with --html and --pdf.",
+    )
     args = parser.parse_args()
 
     # Resolve settings
@@ -721,7 +744,9 @@ specs are rendered; missing ones are reported for generation.
         print(f"Found {len(specs)} spec files in {spec_dir}")
         if html_fmt:
             _render_batch_html(specs, output_dir, args.display_mode, html_fmt)
-        else:
+        if args.explorer:
+            _render_batch_explorer(specs, output_dir)
+        if not html_fmt and not args.explorer:
             render_batch(specs, output_dir=output_dir, show=show,
                          display_mode=args.display_mode,
                          verify_expressions=args.verify_plot)
@@ -737,7 +762,9 @@ specs are rendered; missing ones are reported for generation.
         print(f"Loaded {len(specs)} specs from {args.batch_file}")
         if html_fmt:
             _render_batch_html(specs, output_dir, args.display_mode, html_fmt)
-        else:
+        if args.explorer:
+            _render_batch_explorer(specs, output_dir)
+        if not html_fmt and not args.explorer:
             render_batch(specs, output_dir=output_dir, show=show,
                          display_mode=args.display_mode,
                          verify_expressions=args.verify_plot)
@@ -782,7 +809,9 @@ specs are rendered; missing ones are reported for generation.
                     specs.append(json.load(f))
             if html_fmt:
                 _render_batch_html(specs, output_dir, args.display_mode, html_fmt)
-            else:
+            if args.explorer:
+                _render_batch_explorer(specs, output_dir)
+            if not html_fmt and not args.explorer:
                 render_batch(specs, output_dir=output_dir, show=show,
                              display_mode=args.display_mode,
                              verify_expressions=args.verify_plot)
@@ -832,7 +861,10 @@ specs are rendered; missing ones are reported for generation.
         from html_renderer import render_from_spec_html
         render_from_spec_html(spec, output_dir, output_name, fmt=html_fmt,
                               display_mode=args.display_mode)
-    else:
+    if args.explorer:
+        from generate_explorer import render_explorer_from_spec
+        render_explorer_from_spec(spec, output_dir, output_name)
+    if not html_fmt and not args.explorer:
         render_from_spec(spec, output_dir, output_name, show,
                          display_mode=args.display_mode,
                          verify_expressions=args.verify_plot)

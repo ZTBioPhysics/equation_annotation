@@ -27,9 +27,9 @@ from jinja2 import Environment, FileSystemLoader
 INPUT_FILE = None               # Path to a single JSON spec file
 BATCH_DIR = None                # Path to directory of JSON specs (renders all)
 OUTPUT_DIR = "output"           # Where to write generated HTML files
-TEMPLATE_DIR = "templates"      # Directory containing Jinja2 templates
+TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"  # Absolute path; works from any cwd
 OPEN_IN_BROWSER = False         # Auto-open generated HTML in default browser
-VALIDATE_DESCRIPTIONS = True    # Use Claude API to check description/insight vs plot
+VALIDATE_DESCRIPTIONS = True    # Check description/insight for consistency with plot spec
 # ============================================================================
 
 
@@ -480,6 +480,39 @@ def render_html(spec, template_dir, output_path):
     output_path.write_text(html, encoding="utf-8")
     print(f"  Generated: {output_path}")
     return output_path
+
+
+def render_explorer_from_spec(spec, output_dir="output", output_name=None):
+    """Render an annotation spec as an interactive HTML explorer file.
+
+    Convenience function parallel to ``html_renderer.render_from_spec_html()``.
+    Constructs output path, calls ``render_html()``, and returns the saved path.
+
+    Parameters
+    ----------
+    spec : dict
+        Annotation spec dict (same format as JSON spec files). Must contain
+        at least a 'segments' key.
+    output_dir : str or Path
+        Directory for the output HTML file (created if needed).
+    output_name : str, optional
+        Base filename without extension. Auto-generated from ``spec['title']``
+        if None.
+
+    Returns
+    -------
+    Path
+        Path to the generated HTML file.
+    """
+    import re as _re
+
+    title = spec.get("title", "Equation")
+    if output_name is None:
+        output_name = _re.sub(r"[^\w\s]", "", title.lower())
+        output_name = _re.sub(r"\s+", "_", output_name).strip("_")
+
+    out_path = Path(output_dir) / f"{output_name}_explorer.html"
+    return render_html(spec, TEMPLATE_DIR, out_path)
 
 
 def _output_name(input_path):
