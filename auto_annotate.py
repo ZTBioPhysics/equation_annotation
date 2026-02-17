@@ -174,6 +174,15 @@ Segmentation rules:
         - Choose x_range to show 1-2 complete periods or the most
           interesting region of the function
 
+  "insight": str or None (OPTIONAL)
+      A paragraph explaining the equation's mathematical behavior and
+      why the plot is shaped the way it is. Focus on:
+        - What structural features of the equation produce the curve shape
+        - Physical/intuitive interpretation of key regions
+        - How parameters affect the behavior
+      Write for an educated non-specialist. 3-5 sentences.
+      Include ONLY when a plot is also present.
+
 EXAMPLE (DFT) — use this as a format reference:
 
 {example_spec}
@@ -363,6 +372,14 @@ EXAMPLE_SPEC = {
             {"type": "region", "x_range": [0, 8], "label": "First period", "color": "#4ECDC4", "alpha": 0.1},
         ],
     },
+    "insight": (
+        "The plot shows the real (cosine) and imaginary (negative sine) components of the "
+        "DFT basis function for frequency bin k=2 across N=16 samples. The k value controls "
+        "how many complete oscillation cycles fit within the N-sample window \u2014 here exactly 2 "
+        "full periods. Higher k values pack more cycles into the same window, probing higher "
+        "frequencies. The DFT essentially measures how well the input signal correlates with "
+        "each of these sinusoidal templates."
+    ),
 }
 # ============================================================================
 
@@ -439,6 +456,7 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
     symbols = spec.get("symbols", None)
     constants = spec.get("constants", None)
     plot = spec.get("plot", None)
+    insight = spec.get("insight", None)
 
     # Resolve display mode: CLI arg takes precedence unless "full" (default),
     # in which case check spec dict for per-equation override
@@ -467,6 +485,7 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
         constants=constants,
         plot=plot,
         display_mode=mode,
+        insight=insight,
     )
 
     print("Saving output:")
@@ -608,8 +627,9 @@ specs are rendered; missing ones are reported for generation.
     )
     parser.add_argument(
         "--display-mode", "-m", type=str, default="full",
-        choices=["full", "compact", "plot", "minimal"],
-        help="Display mode: full (default), compact (no plot), plot (no text), minimal (basic symbols only).",
+        choices=["full", "compact", "plot", "minimal", "insight"],
+        help="Display mode: full (default), compact (no plot), plot (no text), "
+             "minimal (basic symbols only), insight (plot + explanation).",
     )
     args = parser.parse_args()
 

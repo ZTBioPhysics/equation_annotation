@@ -356,7 +356,7 @@ def _validate_plot(plot_spec):
 def _compute_vertical_layout(
     equation_fontsize, title, has_labels, groups, description, use_cases,
     group_fontsize, description_fontsize, fig_dpi, symbols=None, plot=None,
-    fig_width_in=None,
+    fig_width_in=None, insight=None,
 ):
     """Compute y-positions (figure-fraction) for all vertical layers.
 
@@ -495,12 +495,22 @@ def _compute_vertical_layout(
 
     # Plot section
     if plot:
-        y_cursor += equation_fontsize * 2.5  # gap above plot
+        y_cursor += equation_fontsize * 1.2  # gap above plot
         plot_top = y_cursor
         plot_height_px = plot.get("height_px", 250)
         y_cursor += plot_height_px
     else:
         plot_top = None
+
+    # Insight (behavioral explanation below plot)
+    if insight:
+        y_cursor += equation_fontsize * 2.0
+        insight_top = y_cursor
+        insight_lines = insight.count("\n") + 1
+        insight_height = description_fontsize * 1.6 * max(insight_lines, 3)
+        y_cursor = insight_top + insight_height
+    else:
+        insight_top = None
 
     # Bottom padding
     y_cursor += equation_fontsize * 0.6
@@ -532,6 +542,7 @@ def _compute_vertical_layout(
         "use_cases_y": to_frac(uc_y) if uc_y is not None else None,
         "plot_top_y": to_frac(plot_top) if plot else None,
         "plot_bottom_y": to_frac(plot_top + plot.get("height_px", 250)) if plot else None,
+        "insight_y": to_frac(insight_top) if insight else None,
         "total_height_px": total_height_px,
     }
     return layout
@@ -855,6 +866,28 @@ def _render_plot(fig, plot_spec, layout, background_color, description_fontsize)
         leg.get_frame().set_alpha(0.8)
 
 
+def _render_insight(fig, insight, layout, description_fontsize):
+    """Render the insight text block below the plot.
+
+    The insight explains the equation's mathematical behavior and why
+    the plot looks the way it does.
+    """
+    insight_y = layout.get("insight_y")
+    if insight_y is None:
+        return
+    fig.text(
+        0.5, insight_y,
+        insight,
+        fontsize=description_fontsize,
+        color="#BBBBBB",
+        ha="center", va="top",
+        usetex=False,
+        transform=fig.transFigure,
+        linespacing=1.5,
+        wrap=True,
+    )
+
+
 def annotate_equation(
     segments,
     *,
@@ -878,6 +911,7 @@ def annotate_equation(
     description_fontsize=None,
     plot=None,
     display_mode="full",
+    insight=None,
 ):
     """Create a color-coded annotated equation figure.
 
@@ -934,10 +968,14 @@ def annotate_equation(
     display_mode : str
         Controls which sections appear. One of:
         - "full" (default): all sections
-        - "compact": no plot
+        - "compact": no plot or insight
         - "plot": no description, symbols, or use cases
+        - "insight": plot + insight + brief symbols (no description/use cases)
         - "minimal": no plot, description, or use cases; symbols show
           name only (no long descriptions)
+    insight : str, optional
+        Paragraph explaining the equation's mathematical behavior and
+        why the plot is shaped the way it is. Rendered below the plot.
 
     Returns
     -------
@@ -966,18 +1004,30 @@ def annotate_equation(
         symbols = []
 
     # Validate and apply display mode
-    valid_modes = {"full", "compact", "plot", "minimal"}
+    valid_modes = {"full", "compact", "plot", "minimal", "insight"}
     if display_mode not in valid_modes:
         raise ValueError(f"display_mode must be one of {valid_modes}, got {display_mode!r}")
 
     if display_mode == "compact":
         plot = None
+        insight = None
     elif display_mode == "plot":
         description = None
         symbols = []
         use_cases = []
+        insight = None
     elif display_mode == "minimal":
         plot = None
+        insight = None
+        description = None
+        use_cases = []
+        if symbols:
+            symbols = [
+                {"symbol": s.get("symbol", ""), "name": s.get("name", ""),
+                 "type": s.get("type", "constant"), "description": ""}
+                for s in symbols
+            ]
+    elif display_mode == "insight":
         description = None
         use_cases = []
         if symbols:
@@ -1028,7 +1078,7 @@ def annotate_equation(
     layout = _compute_vertical_layout(
         equation_fontsize, title, has_labels, groups, description, use_cases,
         group_fontsize, description_fontsize, fig_dpi, symbols=symbols,
-        plot=plot, fig_width_in=fig_width_in,
+        plot=plot, fig_width_in=fig_width_in, insight=insight,
     )
 
     if figsize is None:
@@ -1215,6 +1265,10 @@ def annotate_equation(
     if plot:
         _render_plot(fig, plot, layout, background_color, description_fontsize)
 
+    # Render insight
+    if insight:
+        _render_insight(fig, insight, layout, description_fontsize)
+
     return fig
 
 
@@ -1281,8 +1335,9 @@ Example JSON input file:
     )
     parser.add_argument(
         "--display-mode", type=str, default="full",
-        choices=["full", "compact", "plot", "minimal"],
-        help="Display mode: full (default), compact (no plot), plot (no text), minimal (basic symbols only).",
+        choices=["full", "compact", "plot", "minimal", "insight"],
+        help="Display mode: full (default), compact (no plot), plot (no text), "
+             "minimal (basic symbols only), insight (plot + explanation).",
     )
     parser.add_argument(
         "--show", action="store_true",
@@ -1300,6 +1355,7 @@ Example JSON input file:
     symbols = None
     constants = None
     plot = None
+    insight = None
 
     if input_file:
         with open(input_file) as f:
@@ -1315,6 +1371,7 @@ Example JSON input file:
             symbols = data.get("symbols", None)
             constants = data.get("constants", None)
             plot = data.get("plot", None)
+            insight = data.get("insight", None)
         else:
             raise ValueError("JSON must be a list of segments or a dict with 'segments' key.")
 
@@ -1355,6 +1412,7 @@ Example JSON input file:
         description_fontsize=desc_fs,
         plot=plot,
         display_mode=args.display_mode,
+        insight=insight,
     )
 
     print("Saving output:")

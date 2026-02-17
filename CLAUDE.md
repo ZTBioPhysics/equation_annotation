@@ -25,12 +25,14 @@ Equation_Annotator/
 - **Output:** PNG (300 DPI) + SVG via `save_figure()` helper
 - **Two-pass rendering:** measure text extents first, then compute layout and render
 - **Annotated plot:** optional `plot` dict with `curves`, `x_range`, `annotations` etc. — renders a dark-themed matplotlib plot below the annotation showing the equation's behavior. Expressions evaluated via `_safe_eval_expr()` (restricted numpy namespace). Supports point, vline, hline, and region annotations.
-- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → symbols → use cases → plot), converts to figure fractions
+- **Insight text:** optional `insight` string rendered below the plot — a paragraph explaining the equation's mathematical behavior and why the plot looks the way it does
+- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → symbols → use cases → plot → insight), converts to figure fractions
 - **Display modes:** `display_mode` parameter controls which sections appear:
   - `full` (default) — all sections
-  - `compact` — no plot; keeps description, symbols, use cases
-  - `plot` — no text sections (description, symbols, use cases); keeps plot
-  - `minimal` — no plot, description, or use cases; symbols show name only (no long descriptions)
+  - `compact` — no plot or insight; keeps description, symbols, use cases
+  - `plot` — no text sections (description, symbols, use cases, insight); keeps plot
+  - `insight` — plot + insight + brief symbols (no description or use cases)
+  - `minimal` — no plot, description, insight, or use cases; symbols show name only (no long descriptions)
 
 ## Key Design Decisions
 
@@ -104,8 +106,9 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 - **Batch rendering** — `--spec-dir`, `--batch-file`, `--equations-list` for multi-equation workflows
 - **Symbol definitions section** — every variable, parameter, and constant with name, type, and thorough educational description; grouped by type with headers
 - **Annotated plot section** — optional `plot` key in specs renders a dark-themed matplotlib plot below the annotation; supports curves, annotations (point/vline/hline/region), and parameters
-- **Display modes** — `--display-mode` flag on both CLIs (`full`, `compact`, `plot`, `minimal`); also readable from spec JSON via `display_mode` key
-- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols`, `plot` fields; legacy `constants` still accepted)
+- **Insight text** — optional `insight` field in specs; paragraph explaining mathematical behavior, rendered below the plot
+- **Display modes** — `--display-mode` flag on both CLIs (`full`, `compact`, `plot`, `insight`, `minimal`); also readable from spec JSON via `display_mode` key
+- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols`, `plot`, `insight` fields; legacy `constants` still accepted)
 - PNG + SVG output at 300 DPI
 - Dynamic vertical layout adapts figure height to content
 - Pushed to GitHub (`main` branch)
