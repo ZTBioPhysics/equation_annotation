@@ -18,10 +18,12 @@ Usage:
 
 import argparse
 import json
+import textwrap
 from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 # ============================================================================
@@ -240,9 +242,71 @@ def _validate_groups(groups, num_segments):
                     )
 
 
+def _safe_eval_expr(expr_str, x_array, parameters=None):
+    """Evaluate a numpy expression string safely.
+
+    Parameters
+    ----------
+    expr_str : str
+        Expression using ``x`` and numpy functions (e.g., ``"np.sin(2 * np.pi * x)"``).
+    x_array : numpy.ndarray
+        Values to substitute for ``x``.
+    parameters : dict, optional
+        Additional name/value pairs available in the expression.
+
+    Returns
+    -------
+    numpy.ndarray
+        Result broadcast to match ``x_array`` shape.
+    """
+    namespace = {"np": np, "x": x_array, "__builtins__": {}}
+    if parameters:
+        namespace.update(parameters)
+    try:
+        result = eval(expr_str, namespace)  # noqa: S307
+    except Exception as exc:
+        raise ValueError(f"Failed to evaluate expression {expr_str!r}: {exc}") from exc
+    # Broadcast scalar results
+    result = np.asarray(result)
+    if result.shape == ():
+        result = np.broadcast_to(result, x_array.shape).copy()
+    return result
+
+
+def _validate_plot(plot_spec):
+    """Validate a plot spec dict.
+
+    Raises ValueError on invalid specs.
+    """
+    if not isinstance(plot_spec, dict):
+        raise ValueError("plot must be a dict.")
+    curves = plot_spec.get("curves")
+    if not curves:
+        raise ValueError("plot.curves must be a non-empty list.")
+    for ci, c in enumerate(curves):
+        if "expr" not in c:
+            raise ValueError(f"plot.curves[{ci}]: missing 'expr'.")
+        if "color" not in c:
+            raise ValueError(f"plot.curves[{ci}]: missing 'color'.")
+    x_range = plot_spec.get("x_range")
+    if x_range is None:
+        raise ValueError("plot.x_range is required.")
+    if (not isinstance(x_range, (list, tuple)) or len(x_range) != 2
+            or x_range[0] >= x_range[1]):
+        raise ValueError("plot.x_range must be [min, max] with min < max.")
+    annotations = plot_spec.get("annotations", [])
+    valid_types = {"point", "vline", "hline", "region"}
+    for ai, a in enumerate(annotations):
+        atype = a.get("type")
+        if atype not in valid_types:
+            raise ValueError(
+                f"plot.annotations[{ai}]: type must be one of {valid_types}, got {atype!r}."
+            )
+
+
 def _compute_vertical_layout(
     equation_fontsize, title, has_labels, groups, description, use_cases,
-    group_fontsize, description_fontsize, fig_dpi, symbols=None,
+    group_fontsize, description_fontsize, fig_dpi, symbols=None, plot=None,
 ):
     """Compute y-positions (figure-fraction) for all vertical layers.
 
@@ -305,7 +369,7 @@ def _compute_vertical_layout(
 
     # Description
     if description:
-        gap = equation_fontsize * 0.6
+        gap = equation_fontsize * 1.2
         y_cursor += gap
         desc_y = y_cursor
         # Count lines in description for height
@@ -315,12 +379,12 @@ def _compute_vertical_layout(
     else:
         desc_y = None
 
-    # Symbols (variable/parameter/constant definitions)
+    # 2-column layout decision (before height calc, affects wrapping estimate)
+    info_columns = bool(symbols and use_cases)
+
+    # Symbols (variable/parameter/constant definitions) — compute height
+    symbols_height = 0
     if symbols:
-        gap = equation_fontsize * 0.3
-        y_cursor += gap
-        symbols_y = y_cursor
-        # Count lines: entries + type headers + blank separators
         type_order = ["variable", "parameter", "constant"]
         grouped = {t: [] for t in type_order}
         for s in symbols:
@@ -330,24 +394,71 @@ def _compute_vertical_layout(
             grouped[t].append(s)
         active_types = [t for t in type_order if grouped[t]]
         show_headers = len(active_types) > 1
-        num_lines = sum(len(grouped[t]) for t in active_types)
-        if show_headers:
-            num_lines += len(active_types)  # type headers
-            num_lines += max(0, len(active_types) - 1)  # blank separators (half-height)
-        symbols_height = description_fontsize * 1.6 * (num_lines + 0.5)
-        y_cursor = symbols_y + symbols_height
-    else:
-        symbols_y = None
 
-    # Use cases
+        if info_columns:
+            # Estimate wrapped line count per entry (column is ~56% of figure)
+            # Use ~100 chars as approximate wrap width for height estimation
+            est_wrap = 100
+            num_lines = 0
+            for t in active_types:
+                for s in grouped[t]:
+                    name = s.get("name", "")
+                    desc = s.get("description", "")
+                    sym = s.get("symbol", "")
+                    raw = f"  {sym} ({name}) \u2014 {desc}" if name else f"  {sym} \u2014 {desc}"
+                    num_lines += max(1, -(-len(raw) // est_wrap))  # ceil division
+            if show_headers:
+                num_lines += len(active_types)
+                num_lines += max(0, len(active_types) - 1)
+        else:
+            num_lines = sum(len(grouped[t]) for t in active_types)
+            if show_headers:
+                num_lines += len(active_types)
+                num_lines += max(0, len(active_types) - 1)
+
+        symbols_height = description_fontsize * 2.0 * (num_lines + 0.5)
+
+    # Use cases — compute height
+    uc_height = 0
     if use_cases:
-        gap = equation_fontsize * 0.3
+        # +1.5 lines for "Use Cases" header when in 2-column mode
+        uc_header_lines = 1.5 if info_columns else 0
+        if info_columns:
+            est_wrap = 50
+            uc_lines = sum(max(1, -(-len(uc) // est_wrap)) for uc in use_cases)
+        else:
+            uc_lines = len(use_cases)
+        uc_height = description_fontsize * 2.2 * (uc_lines + uc_header_lines)
+    symbols_y = None
+    uc_y = None
+    info_y_px = None
+
+    if info_columns:
+        gap = equation_fontsize * 0.6
         y_cursor += gap
-        uc_y = y_cursor
-        uc_height = description_fontsize * 1.8 * len(use_cases)
-        y_cursor = uc_y + uc_height
+        info_y_px = y_cursor
+        shared_height = max(symbols_height, uc_height)
+        y_cursor += shared_height
     else:
-        uc_y = None
+        if symbols:
+            gap = equation_fontsize * 0.3
+            y_cursor += gap
+            symbols_y = y_cursor
+            y_cursor += symbols_height
+        if use_cases:
+            gap = equation_fontsize * 0.3
+            y_cursor += gap
+            uc_y = y_cursor
+            y_cursor += uc_height
+
+    # Plot section
+    if plot:
+        y_cursor += equation_fontsize * 2.5  # gap above plot
+        plot_top = y_cursor
+        plot_height_px = plot.get("height_px", 250)
+        y_cursor += plot_height_px
+    else:
+        plot_top = None
 
     # Bottom padding
     y_cursor += equation_fontsize * 0.6
@@ -373,8 +484,12 @@ def _compute_vertical_layout(
             for lv, pos in group_level_positions.items()
         },
         "desc_y": to_frac(desc_y) if description else None,
-        "symbols_y": to_frac(symbols_y) if symbols else None,
-        "use_cases_y": to_frac(uc_y) if use_cases else None,
+        "info_columns": info_columns,
+        "info_y": to_frac(info_y_px) if info_y_px is not None else None,
+        "symbols_y": to_frac(symbols_y) if symbols_y is not None else None,
+        "use_cases_y": to_frac(uc_y) if uc_y is not None else None,
+        "plot_top_y": to_frac(plot_top) if plot else None,
+        "plot_bottom_y": to_frac(plot_top + plot.get("height_px", 250)) if plot else None,
         "total_height_px": total_height_px,
     }
     return layout
@@ -471,14 +586,22 @@ def _render_description(fig, description, layout, description_fontsize,
     )
 
 
-def _render_symbols(fig, symbols, layout, description_fontsize):
+def _render_symbols(fig, symbols, layout, description_fontsize,
+                    x_pos=0.5, ha="center", wrap_width=0):
     """Render the symbol definitions section grouped by type.
 
-    Uses ha='center' with multialignment='left' so the block is centered
-    in the figure (keeping title/equation alignment) while each line is
-    left-justified for readability.
+    Parameters
+    ----------
+    x_pos : float
+        Horizontal position in figure fraction (default 0.5 for centered).
+    ha : str
+        Horizontal alignment ('center' or 'left').
+    wrap_width : int
+        If > 0, wrap description lines to this many characters.
     """
     symbols_y = layout.get("symbols_y")
+    if symbols_y is None:
+        symbols_y = layout.get("info_y")
     if symbols_y is None:
         return
 
@@ -511,19 +634,27 @@ def _render_symbols(fig, symbols, layout, description_fontsize):
             desc = s.get("description", "")
             sym = s.get("symbol", "")
             if name:
-                lines.append(f"  {sym} ({name}) \u2014 {desc}")
+                raw = f"  {sym} ({name}) \u2014 {desc}"
             else:
-                lines.append(f"  {sym} \u2014 {desc}")
+                raw = f"  {sym} \u2014 {desc}"
+            if wrap_width > 0:
+                wrapped = textwrap.fill(
+                    raw, width=wrap_width,
+                    subsequent_indent="        ",
+                )
+                lines.append(wrapped)
+            else:
+                lines.append(raw)
 
     full_text = "\n".join(lines)
-    fs = description_fontsize * 0.88
+    fs = description_fontsize * 1.1
 
     fig.text(
-        0.5, symbols_y,
+        x_pos, symbols_y,
         full_text,
         fontsize=fs,
         color="#AAAAAA",
-        ha="center", va="top",
+        ha=ha, va="top",
         multialignment="left",
         usetex=False,
         transform=fig.transFigure,
@@ -531,22 +662,165 @@ def _render_symbols(fig, symbols, layout, description_fontsize):
     )
 
 
-def _render_use_cases(fig, use_cases, layout, description_fontsize):
-    """Render bulleted use-case list."""
-    uc_y = layout["use_cases_y"]
+def _render_use_cases(fig, use_cases, layout, description_fontsize,
+                      x_pos=0.5, ha="center", show_header=False,
+                      wrap_width=0):
+    """Render bulleted use-case list.
+
+    Parameters
+    ----------
+    x_pos : float
+        Horizontal position in figure fraction (default 0.5 for centered).
+    ha : str
+        Horizontal alignment ('center' or 'left').
+    show_header : bool
+        If True, render a "Use Cases" header above the bullets.
+    wrap_width : int
+        If > 0, wrap bullet lines to this many characters.
+    """
+    uc_y = layout.get("use_cases_y")
+    if uc_y is None:
+        uc_y = layout.get("info_y")
     if uc_y is None:
         return
-    bullet_text = "\n".join(f"\u2022  {uc}" for uc in use_cases)
+    lines = []
+    if show_header:
+        lines.append("Use Cases")
+        lines.append("")  # blank separator
+    for uc in use_cases:
+        raw = f"\u2022  {uc}"
+        if wrap_width > 0:
+            wrapped = textwrap.fill(
+                raw, width=wrap_width,
+                subsequent_indent="    ",
+            )
+            lines.append(wrapped)
+        else:
+            lines.append(raw)
+    bullet_text = "\n".join(lines)
     fig.text(
-        0.5, uc_y,
+        x_pos, uc_y,
         bullet_text,
-        fontsize=description_fontsize * 0.9,
+        fontsize=description_fontsize * 1.1,
         color="#999999",
-        ha="center", va="top",
+        ha=ha, va="top",
         usetex=False,
         transform=fig.transFigure,
         linespacing=1.6,
     )
+
+
+def _render_plot(fig, plot_spec, layout, background_color, description_fontsize):
+    """Render an annotated matplotlib plot below the equation annotation.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+    plot_spec : dict
+        Plot specification with curves, x_range, annotations, etc.
+    layout : dict
+        Vertical layout dict from ``_compute_vertical_layout``.
+    background_color : str
+        Figure background color (used for axes styling).
+    description_fontsize : int
+        Base font size for labels.
+    """
+    plot_top_y = layout.get("plot_top_y")
+    plot_bottom_y = layout.get("plot_bottom_y")
+    if plot_top_y is None or plot_bottom_y is None:
+        return
+
+    # Axes rect: [left, bottom, width, height] in figure fraction
+    left = 0.12
+    right = 0.88
+    ax_width = right - left
+    ax_bottom = plot_bottom_y
+    ax_height = plot_top_y - plot_bottom_y
+    ax = fig.add_axes([left, ax_bottom, ax_width, ax_height])
+
+    # Dark theme styling
+    ax_face = "#252545"
+    ax.set_facecolor(ax_face)
+    for spine in ax.spines.values():
+        spine.set_color("#555555")
+    ax.tick_params(colors="#999999", labelsize=description_fontsize * 0.75)
+    ax.grid(True, color="#333355", linewidth=0.5, alpha=0.6)
+
+    # Evaluate and plot curves
+    x_range = plot_spec["x_range"]
+    parameters = plot_spec.get("parameters", {})
+    num_points = plot_spec.get("num_points", 500)
+    x = np.linspace(x_range[0], x_range[1], num_points)
+
+    for curve in plot_spec["curves"]:
+        y = _safe_eval_expr(curve["expr"], x, parameters)
+        label = curve.get("label")
+        style = curve.get("style", "-")
+        lw = curve.get("linewidth", 2)
+        ax.plot(x, y, color=curve["color"], label=label, linestyle=style,
+                linewidth=lw, alpha=curve.get("alpha", 0.9))
+
+    # Y range
+    y_range = plot_spec.get("y_range")
+    if y_range:
+        ax.set_ylim(y_range)
+
+    # Render annotations
+    for ann in plot_spec.get("annotations", []):
+        atype = ann["type"]
+        color = ann.get("color", "#AAAAAA")
+        alpha = ann.get("alpha", 0.7)
+        style = ann.get("style", "solid")
+        label = ann.get("label")
+
+        if atype == "point":
+            ax.plot(ann["x"], ann["y"], "o", color=color, markersize=7,
+                    zorder=5, alpha=alpha)
+            if label:
+                ax.annotate(
+                    label,
+                    xy=(ann["x"], ann["y"]),
+                    xytext=(8, 8), textcoords="offset points",
+                    fontsize=description_fontsize * 0.7,
+                    color=color, alpha=alpha,
+                )
+        elif atype == "vline":
+            ax.axvline(ann["x"], color=color, linestyle=style, alpha=alpha,
+                       linewidth=1.2, label=label)
+        elif atype == "hline":
+            ax.axhline(ann["y"], color=color, linestyle=style, alpha=alpha,
+                       linewidth=1.2, label=label)
+        elif atype == "region":
+            region_range = ann.get("x_range", [x_range[0], x_range[1]])
+            region_alpha = ann.get("alpha", 0.15)
+            ax.axvspan(region_range[0], region_range[1], color=color,
+                       alpha=region_alpha, label=label)
+
+    # Axis labels
+    x_label = plot_spec.get("x_label")
+    y_label = plot_spec.get("y_label")
+    if x_label:
+        ax.set_xlabel(x_label, color="#BBBBBB",
+                      fontsize=description_fontsize * 0.8)
+    if y_label:
+        ax.set_ylabel(y_label, color="#BBBBBB",
+                      fontsize=description_fontsize * 0.8)
+
+    # Plot subtitle
+    plot_title = plot_spec.get("title")
+    if plot_title:
+        ax.set_title(plot_title, color="#CCCCCC",
+                     fontsize=description_fontsize * 0.9, pad=8)
+
+    # Legend
+    handles, labels = ax.get_legend_handles_labels()
+    if labels:
+        leg = ax.legend(
+            fontsize=description_fontsize * 0.7,
+            facecolor=ax_face, edgecolor="#555555",
+            labelcolor="#BBBBBB", loc="best",
+        )
+        leg.get_frame().set_alpha(0.8)
 
 
 def annotate_equation(
@@ -570,6 +844,7 @@ def annotate_equation(
     constants=None,
     group_fontsize=None,
     description_fontsize=None,
+    plot=None,
 ):
     """Create a color-coded annotated equation figure.
 
@@ -619,6 +894,10 @@ def annotate_equation(
         Font size for group labels (default: GROUP_FONTSIZE).
     description_fontsize : int, optional
         Font size for description and use cases (default: DESCRIPTION_FONTSIZE).
+    plot : dict, optional
+        Plot specification for an annotated matplotlib plot rendered below
+        the equation annotation. Keys: curves, x_range, y_range,
+        parameters, annotations, x_label, y_label, title, height_px.
 
     Returns
     -------
@@ -650,6 +929,10 @@ def annotate_equation(
     if groups:
         _validate_groups(groups, len(segments))
 
+    # Validate plot
+    if plot:
+        _validate_plot(plot)
+
     if use_latex:
         plt.rcParams["text.usetex"] = True
         plt.rcParams["font.family"] = "serif"
@@ -668,6 +951,7 @@ def annotate_equation(
     layout = _compute_vertical_layout(
         equation_fontsize, title, has_labels, groups, description, use_cases,
         group_fontsize, description_fontsize, fig_dpi, symbols=symbols,
+        plot=plot,
     )
 
     # Initial measurement with a guess figsize for auto-sizing
@@ -839,13 +1123,57 @@ def annotate_equation(
         _render_description(fig, description, layout, description_fontsize,
                             fig_width_px)
 
-    # Render symbol definitions
-    if symbols:
-        _render_symbols(fig, symbols, layout, description_fontsize)
+    # Render symbol definitions and use cases
+    if layout.get("info_columns"):
+        # 2-column layout: symbols 60% left, use cases 35% right
+        # Column geometry — span full figure width
+        sym_left = 0.03
+        sym_right = 0.61
+        divider_x = 0.63
+        uc_left = 0.66
+        uc_right = 0.97
 
-    # Render use cases
-    if use_cases:
-        _render_use_cases(fig, use_cases, layout, description_fontsize)
+        # Estimate wrap widths from figure size and font
+        # Convert fontsize (points) to average character width (pixels)
+        pts_to_px = fig_dpi / 72.0
+        avg_char_factor = 0.50  # average width/height for proportional font
+
+        sym_col_px = figsize[0] * fig_dpi * (sym_right - sym_left)
+        sym_char_px = (description_fontsize * 1.1) * pts_to_px * avg_char_factor
+        sym_wrap = max(40, int(sym_col_px / sym_char_px))
+        uc_col_px = figsize[0] * fig_dpi * (uc_right - uc_left)
+        uc_char_px = (description_fontsize * 1.1) * pts_to_px * avg_char_factor
+        uc_wrap = max(30, int(uc_col_px / uc_char_px))
+
+        if symbols:
+            _render_symbols(fig, symbols, layout, description_fontsize,
+                            x_pos=sym_left, ha="left", wrap_width=sym_wrap)
+        if use_cases:
+            _render_use_cases(fig, use_cases, layout, description_fontsize,
+                              x_pos=uc_left, ha="left", show_header=True,
+                              wrap_width=uc_wrap)
+        # Subtle vertical divider between columns
+        info_y = layout.get("info_y")
+        if info_y is not None:
+            plot_top = layout.get("plot_top_y")
+            divider_bottom = plot_top + 0.01 if plot_top is not None else 0.02
+            divider = matplotlib.lines.Line2D(
+                [divider_x, divider_x],
+                [info_y - 0.01, divider_bottom],
+                transform=fig.transFigure,
+                color="#333355", alpha=0.5, linewidth=1.0,
+            )
+            fig.add_artist(divider)
+    else:
+        # Single-column centered layout
+        if symbols:
+            _render_symbols(fig, symbols, layout, description_fontsize)
+        if use_cases:
+            _render_use_cases(fig, use_cases, layout, description_fontsize)
+
+    # Render plot
+    if plot:
+        _render_plot(fig, plot, layout, background_color, description_fontsize)
 
     return fig
 
@@ -926,6 +1254,7 @@ Example JSON input file:
     use_cases = None
     symbols = None
     constants = None
+    plot = None
 
     if input_file:
         with open(input_file) as f:
@@ -940,6 +1269,7 @@ Example JSON input file:
             use_cases = data.get("use_cases", None)
             symbols = data.get("symbols", None)
             constants = data.get("constants", None)
+            plot = data.get("plot", None)
         else:
             raise ValueError("JSON must be a list of segments or a dict with 'segments' key.")
 
@@ -978,6 +1308,7 @@ Example JSON input file:
         constants=constants,
         group_fontsize=group_fs,
         description_fontsize=desc_fs,
+        plot=plot,
     )
 
     print("Saving output:")

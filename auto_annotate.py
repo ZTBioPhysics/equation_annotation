@@ -46,6 +46,7 @@ NUM_USE_CASES = 3
 OUTPUT_DIR = "output"
 OUTPUT_NAME = None          # Auto-generated from equation title if None
 SHOW_PLOT = False
+LABEL_STYLE = "mixed"       # "descriptive", "creative", or "mixed"
 EQUATIONS_LIST = None       # List of equation names for batch generation, or None
 
 # Set this to a spec dict (see EXAMPLE_SPEC for format) or None.
@@ -135,11 +136,43 @@ Segmentation rules:
   - Keep segments atomic: one concept per segment
   - Superscripts (exponents) are separate segments with superscript: True
 
-Label guidelines:
-  - Concise, educational, plain-English (no jargon)
-  - 2-4 words per line, max 2 lines with "\\n"
-  - Describe WHAT the term represents, not its symbol name
-  - Example: "normalize by\\nnumber of samples" not "one over N"
+{label_style_instructions}
+
+  "plot": dict or None (OPTIONAL)
+      An annotated matplotlib plot showing the equation's behavior.
+      Include ONLY when the equation describes a plottable 2D function
+      (y vs x). OMIT for identities, matrix equations, set theory, etc.
+
+      Keys:
+        - "curves": list of dict (REQUIRED) — each curve to plot:
+            - "expr": str — numpy expression using variable "x" and any
+              parameters (e.g., "np.sin(2 * np.pi * k * x / N)")
+            - "color": str — hex color (reuse segment colors for cohesion)
+            - "label": str or None — legend label
+            - "style": str — matplotlib linestyle ("-", "--", ":", "-.")
+            - "linewidth": float — line width (default 2)
+        - "x_range": [min, max] (REQUIRED) — domain for x
+        - "y_range": [min, max] or None — y-axis limits (auto if omitted)
+        - "x_label": str — x-axis label
+        - "y_label": str — y-axis label
+        - "title": str — plot subtitle
+        - "parameters": dict — name/value pairs available in expressions
+            (e.g., {{"N": 16, "k": 2}})
+        - "height_px": int — plot height in pixels (default 250)
+        - "num_points": int — number of x samples (default 500)
+        - "annotations": list of dict — visual annotations on the plot:
+            - {{"type": "point", "x": num, "y": num, "label": str, "color": str}}
+            - {{"type": "vline", "x": num, "label": str, "color": str, "style": str}}
+            - {{"type": "hline", "y": num, "label": str, "color": str, "style": str}}
+            - {{"type": "region", "x_range": [a, b], "label": str, "color": str, "alpha": float}}
+
+      Guidelines for plots:
+        - Reuse colors from the equation segments for visual cohesion
+        - Include 2-4 meaningful annotations highlighting key features
+          (intercepts, peaks, asymptotes, regions of interest)
+        - Use descriptive axis labels and a brief subtitle
+        - Choose x_range to show 1-2 complete periods or the most
+          interesting region of the function
 
 EXAMPLE (DFT) — use this as a format reference:
 
@@ -150,6 +183,46 @@ with {num_levels} hierarchy level(s) and {num_use_cases} use case(s).
 
 Return ONLY the Python dict literal (no markdown fences, no variable
 assignment). It must be valid Python that can be parsed with ast.literal_eval().
+"""
+# ============================================================================
+
+
+# ============================================================================
+# Label style instruction strings — plugged into GENERATION_PROMPT
+# ============================================================================
+_LABEL_STYLE_DESCRIPTIVE = """\
+Label guidelines (descriptive style):
+  - Labels should be precise and technical
+  - Describe the mathematical role of each term
+  - Concise: 2-4 words per line, max 2 lines with "\\n"
+  - Do not restate the symbol name; explain what it represents
+  - Examples: "imaginary unit", "summation index",
+    "normalization\\nfactor 1/N", "angular frequency"\
+"""
+
+_LABEL_STYLE_CREATIVE = """\
+Label guidelines (creative style):
+  - Labels should be intuitive and evocative — help the reader *feel* the math
+  - Use metaphors, physical analogies, and action verbs
+  - Must remain mathematically accurate
+  - Concise: 2-4 words per line, max 2 lines with "\\n"
+  - Examples: "rotate\\nbackwards" (for −i), "a full\\ncircle" (for 2π),
+    "fraction of\\ntime elapsed" (for n/N), "iterate over\\nall samples"\
+"""
+
+_LABEL_STYLE_MIXED = """\
+Label guidelines (mixed style):
+  - Use creative/intuitive labels for the most conceptually rich terms
+    (the ones that benefit from a fresh perspective)
+  - Use straightforward descriptive labels for standard/simple terms
+    (equals sign, basic variables, well-known constants)
+  - Aim for roughly 60% creative, 40% descriptive
+  - The result should feel natural, not forced
+  - Concise: 2-4 words per line, max 2 lines with "\\n"
+  - Creative examples: "rotate\\nbackwards", "a full\\ncircle",
+    "fraction of\\ntime elapsed"
+  - Descriptive examples: "imaginary unit", "summation index",
+    "normalization factor"\
 """
 # ============================================================================
 
@@ -262,11 +335,40 @@ EXAMPLE_SPEC = {
         "Structural biology: Processing electron density maps in X-ray crystallography",
         "Telecommunications: Modulating and demodulating signals in OFDM systems",
     ],
+    "plot": {
+        "curves": [
+            {
+                "expr": "np.cos(2 * np.pi * k * x / N)",
+                "color": "#89CFF0",
+                "label": "Real (cosine)",
+                "style": "-",
+            },
+            {
+                "expr": "-np.sin(2 * np.pi * k * x / N)",
+                "color": "#C792EA",
+                "label": "Imaginary (-sine)",
+                "style": "--",
+            },
+        ],
+        "x_range": [0, 16],
+        "y_range": [-1.3, 1.3],
+        "x_label": "Sample index (n)",
+        "y_label": "Amplitude",
+        "title": "DFT Basis Functions (k=2, N=16)",
+        "parameters": {"N": 16, "k": 2},
+        "annotations": [
+            {"type": "vline", "x": 8, "label": "N/2", "color": "#FFE66D", "style": "dashed"},
+            {"type": "hline", "y": 0, "color": "#555555", "style": "dotted"},
+            {"type": "point", "x": 0, "y": 1.0, "label": "DC start", "color": "#89CFF0"},
+            {"type": "region", "x_range": [0, 8], "label": "First period", "color": "#4ECDC4", "alpha": 0.1},
+        ],
+    },
 }
 # ============================================================================
 
 
-def get_generation_prompt(equation_input, num_levels=2, num_use_cases=3):
+def get_generation_prompt(equation_input, num_levels=2, num_use_cases=3,
+                          label_style="mixed"):
     """Return the filled-in generation prompt for Claude Code to follow.
 
     Parameters
@@ -277,17 +379,26 @@ def get_generation_prompt(equation_input, num_levels=2, num_use_cases=3):
         Number of hierarchy levels for group brackets.
     num_use_cases : int
         Number of use cases to generate.
+    label_style : str
+        Label style: "descriptive", "creative", or "mixed".
 
     Returns
     -------
     str
         The complete prompt text.
     """
+    style_map = {
+        "descriptive": _LABEL_STYLE_DESCRIPTIVE,
+        "creative": _LABEL_STYLE_CREATIVE,
+        "mixed": _LABEL_STYLE_MIXED,
+    }
+    label_style_instructions = style_map.get(label_style, _LABEL_STYLE_MIXED)
     return GENERATION_PROMPT.format(
         equation_input=equation_input,
         num_levels=num_levels,
         num_use_cases=num_use_cases,
         example_spec=json.dumps(EXAMPLE_SPEC, indent=2),
+        label_style_instructions=label_style_instructions,
     )
 
 
@@ -325,6 +436,7 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
     use_cases = spec.get("use_cases", [])
     symbols = spec.get("symbols", None)
     constants = spec.get("constants", None)
+    plot = spec.get("plot", None)
 
     if output_name is None:
         # Convert title to snake_case filename
@@ -333,6 +445,8 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
 
     print(f"Rendering: {title}")
     print(f"  {len(segments)} segments, {len(groups)} groups")
+    if plot:
+        print(f"  {len(plot.get('curves', []))} plot curves")
 
     fig = annotate_equation(
         segments,
@@ -345,6 +459,7 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
         use_cases=use_cases,
         symbols=symbols,
         constants=constants,
+        plot=plot,
     )
 
     print("Saving output:")
@@ -475,6 +590,12 @@ specs are rendered; missing ones are reported for generation.
         help="JSON file with equation names (strings or {name, levels, use_cases} dicts). "
              "Renders specs that exist, reports missing ones for generation.",
     )
+    parser.add_argument(
+        "--label-style", type=str, default=None,
+        choices=["descriptive", "creative", "mixed"],
+        help="Label style for prompt generation: descriptive, creative, or "
+             f"mixed (default: {LABEL_STYLE}).",
+    )
     args = parser.parse_args()
 
     # Resolve settings
@@ -484,10 +605,12 @@ specs are rendered; missing ones are reported for generation.
     output_dir = args.output or OUTPUT_DIR
     output_name = args.name or OUTPUT_NAME
     show = args.show or SHOW_PLOT
+    label_style = args.label_style or LABEL_STYLE
 
     # Print prompt mode
     if args.print_prompt:
-        print(get_generation_prompt(equation_input, num_levels, num_use_cases))
+        print(get_generation_prompt(equation_input, num_levels, num_use_cases,
+                                    label_style=label_style))
         return
 
     # --- Batch modes (checked first) ---

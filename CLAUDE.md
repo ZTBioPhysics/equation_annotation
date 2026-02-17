@@ -9,7 +9,7 @@ Equation_Annotator/
 ├── equation_annotator.py   # Main module (rendering logic + CLI)
 ├── auto_annotate.py        # Auto-annotation via Claude Code
 ├── example_dft.py          # DFT demo script
-├── requirements.txt        # matplotlib>=3.7
+├── requirements.txt        # matplotlib>=3.7, numpy>=1.20
 ├── CLAUDE.md
 ├── .gitignore
 └── README.md
@@ -24,7 +24,8 @@ Equation_Annotator/
 - **Symbol definitions:** `symbols` list of `{symbol, name, type, description}` dicts — grouped by type (variable/parameter/constant), rendered between description and use cases. Backward-compatible with legacy `constants` format.
 - **Output:** PNG (300 DPI) + SVG via `save_figure()` helper
 - **Two-pass rendering:** measure text extents first, then compute layout and render
-- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → symbols → use cases), converts to figure fractions
+- **Annotated plot:** optional `plot` dict with `curves`, `x_range`, `annotations` etc. — renders a dark-themed matplotlib plot below the annotation showing the equation's behavior. Expressions evaluated via `_safe_eval_expr()` (restricted numpy namespace). Supports point, vline, hline, and region annotations.
+- **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → symbols → use cases → plot), converts to figure fractions
 
 ## Key Design Decisions
 
@@ -56,7 +57,7 @@ conda activate equation_annotator
 - To re-render later: `python auto_annotate.py --spec-file output/bayes_theorem.json`
 
 ### Key components in `auto_annotate.py`
-- **`GENERATION_PROMPT`** — detailed instructions for producing annotation specs (colors, segmentation, labels, groups, description, use cases). Tuning this prompt improves all future annotations.
+- **`GENERATION_PROMPT`** — detailed instructions for producing annotation specs (colors, segmentation, labels, groups, description, use cases, plot). Tuning this prompt improves all future annotations.
 - **`EXAMPLE_SPEC`** — DFT reference showing the exact format expected
 - **`render_from_spec(spec)`** — convenience function: spec dict → annotated figure
 - **CLI flags:** `--equation`, `--levels`, `--use-cases`, `--output`, `--name`, `--show`, `--spec-file`, `--use-example`, `--print-prompt`, `--spec-dir`, `--batch-file`, `--equations-list`
@@ -96,7 +97,8 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 - **Auto-annotation via Claude Code** — `auto_annotate.py` with `GENERATION_PROMPT` and `render_from_spec()`
 - **Batch rendering** — `--spec-dir`, `--batch-file`, `--equations-list` for multi-equation workflows
 - **Symbol definitions section** — every variable, parameter, and constant with name, type, and thorough educational description; grouped by type with headers
-- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols` fields; legacy `constants` still accepted)
+- **Annotated plot section** — optional `plot` key in specs renders a dark-themed matplotlib plot below the annotation; supports curves, annotations (point/vline/hline/region), and parameters
+- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols`, `plot` fields; legacy `constants` still accepted)
 - PNG + SVG output at 300 DPI
 - Dynamic vertical layout adapts figure height to content
 - Pushed to GitHub (`main` branch)
