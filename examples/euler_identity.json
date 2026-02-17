@@ -1,0 +1,55 @@
+{
+  "title": "Euler\u2019s Identity",
+  "segments": [
+    {
+      "latex": "$e$",
+      "color": "#4ECDC4",
+      "label": "Euler's\nnumber"
+    },
+    {
+      "latex": "$^{i\\pi}$",
+      "color": "#C792EA",
+      "label": "imaginary\nexponent",
+      "superscript": true
+    },
+    {
+      "latex": "$ + $",
+      "color": "#AAAAAA",
+      "label": null
+    },
+    {
+      "latex": "$1$",
+      "color": "#FFE66D",
+      "label": "unity"
+    },
+    {
+      "latex": "$ = $",
+      "color": "#AAAAAA",
+      "label": null
+    },
+    {
+      "latex": "$0$",
+      "color": "#FF6B6B",
+      "label": "zero"
+    }
+  ],
+  "groups": [
+    {
+      "segment_indices": [0, 1],
+      "label": "complex exponential at angle \u03c0",
+      "color": "#4ECDC4",
+      "level": 1
+    }
+  ],
+  "description": "Euler\u2019s identity connects five fundamental mathematical constants (e, i, \u03c0, 1, 0)\nin a single elegant equation, often called the most beautiful formula in mathematics.",
+  "use_cases": [
+    "Signal processing: Foundation of Fourier analysis and phasor representation",
+    "Quantum mechanics: Complex exponentials describe wave functions",
+    "Electrical engineering: AC circuit analysis using complex impedance"
+  ],
+  "constants": [
+    { "symbol": "e", "description": "Euler\u2019s number \u2248 2.71828, base of the natural logarithm" },
+    { "symbol": "i", "description": "Imaginary unit, \u221a(\u22121)" },
+    { "symbol": "\u03c0", "description": "Pi \u2248 3.14159, ratio of circumference to diameter" }
+  ]
+}

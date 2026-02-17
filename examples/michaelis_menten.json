@@ -1,0 +1,111 @@
+{
+  "title": "The Michaelis\u2013Menten Equation",
+  "segments": [
+    {
+      "latex": "$v$",
+      "color": "#FF6B6B",
+      "label": "reaction\nvelocity"
+    },
+    {
+      "latex": "$ = $",
+      "color": "#AAAAAA",
+      "label": null
+    },
+    {
+      "latex": "$V_{max}$",
+      "color": "#4ECDC4",
+      "label": "maximum\nreaction rate"
+    },
+    {
+      "latex": "$\\cdot$",
+      "color": "#AAAAAA",
+      "label": null
+    },
+    {
+      "latex": "$[S]$",
+      "color": "#FFE66D",
+      "label": "substrate\nconcentration"
+    },
+    {
+      "latex": "$ /\\;($",
+      "color": "#AAAAAA",
+      "label": null
+    },
+    {
+      "latex": "$K_m$",
+      "color": "#C792EA",
+      "label": "Michaelis\nconstant"
+    },
+    {
+      "latex": "$ + $",
+      "color": "#AAAAAA",
+      "label": null
+    },
+    {
+      "latex": "$[S]$",
+      "color": "#FFE66D",
+      "label": "substrate\nconcentration"
+    },
+    {
+      "latex": "$)$",
+      "color": "#AAAAAA",
+      "label": null
+    }
+  ],
+  "groups": [
+    {
+      "segment_indices": [2, 3, 4],
+      "label": "maximum catalytic output",
+      "color": "#4ECDC4",
+      "level": 1
+    },
+    {
+      "segment_indices": [6, 7, 8],
+      "label": "effective substrate availability",
+      "color": "#C792EA",
+      "level": 1
+    },
+    {
+      "segment_indices": [2, 3, 4, 5, 6, 7, 8, 9],
+      "label": "ratio of catalysis to substrate binding determines observed velocity",
+      "color": "#FF8C42",
+      "level": 2
+    }
+  ],
+  "description": "The Michaelis\u2013Menten equation models enzyme-catalyzed reaction rates as a function of substrate concentration.\nVelocity increases hyperbolically with [S], approaching V_max at saturation.",
+  "use_cases": [
+    "Enzymology: Determining kinetic parameters (V_max, K_m) from enzyme assays",
+    "Pharmacology: Modeling drug metabolism and clearance rates",
+    "Microbiology: Describing nutrient uptake kinetics in bacterial cultures"
+  ],
+
+  "interactive": {
+    "expression": "Vmax * S / (Km + S)",
+    "output": { "symbol": "v", "label": "Reaction velocity", "latex": "v" },
+    "variables": [
+      {
+        "name": "S", "label": "Substrate [S]", "latex": "[S]",
+        "role": "independent", "min": 0, "max": 100, "default": 50, "step": 0.5, "unit": "mM"
+      },
+      {
+        "name": "Vmax", "label": "Max velocity", "latex": "V_{max}",
+        "role": "parameter", "min": 0.1, "max": 200, "default": 100, "step": 1, "unit": "mM/s"
+      },
+      {
+        "name": "Km", "label": "Michaelis constant", "latex": "K_m",
+        "role": "parameter", "min": 0.1, "max": 100, "default": 10, "step": 0.5, "unit": "mM"
+      }
+    ],
+    "annotations": [
+      { "type": "hline", "y": "Vmax", "label": "Vmax", "style": "dashed", "color": "#4ECDC4" },
+      { "type": "hline", "y": "Vmax / 2", "label": "Vmax / 2", "style": "dotted", "color": "#FF6B6B" },
+      { "type": "vline", "x": "Km", "label": "Km", "style": "dashed", "color": "#C792EA" },
+      { "type": "point", "x": "Km", "y": "Vmax / 2", "label": "half-max point", "color": "#FF6B6B" }
+    ],
+    "plot": {
+      "type": "2d",
+      "x_axis": { "variable": "S", "label": "[S] (mM)" },
+      "y_axis": { "label": "v (mM/s)" }
+    }
+  }
+}

@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }}</title>
+
+<!-- KaTeX for equation rendering -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+{% if has_interactive or has_annotator_plot %}
+<!-- Plotly for plotting -->
+<script src="https://cdn.jsdelivr.net/npm/plotly.js@2.27.0/dist/plotly.min.js"></script>
+<!-- math.js for safe expression evaluation -->
+<script src="https://cdn.jsdelivr.net/npm/mathjs@12.2.1/lib/browser/math.js"></script>
+{% endif %}
+
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1a2e;
+    color: #cccccc;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .container {
+    max-width: 960px;
+    width: 100%;
+  }
+
+  /* Title */
+  .eq-title {
+    text-align: center;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #cccccc;
+    margin-bottom: 2rem;
+  }
+
+  /* ── Annotated equation ───────────────────────────────── */
+  .equation-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 2rem 2rem 1rem;
+    margin-bottom: 1.5rem;
+    position: relative;
+  }
+
+  .equation-row {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0;
+    position: relative;
+  }
+
+  .segment-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+
+  .segment-col .katex-seg {
+    font-size: 2.2rem;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .segment-col .seg-label {
+    font-size: 0.78rem;
+    text-align: center;
+    margin-top: 0.3rem;
+    white-space: pre-line;
+    line-height: 1.35;
+    opacity: 0.9;
+  }
+
+  .segment-col.superscript {
+    align-self: flex-start;
+    margin-left: -0.15em;
+  }
+
+  .segment-col.superscript .katex-seg {
+    font-size: 1.45rem;
+    position: relative;
+    top: -0.35em;
+  }
+
+  /* SVG connector overlay */
+  .connector-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  /* Group brackets */
+  .groups-container {
+    margin-top: 0.3rem;
+  }
+
+  .group-row {
+    position: relative;
+    height: 0.9rem;
+    margin-top: 0.1rem;
+  }
+
+  .group-bracket-svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .group-labels-row {
+    position: relative;
+    min-height: 1.2rem;
+    margin-top: 0.2rem;
+  }
+
+  .group-label-text {
+    font-size: 0.75rem;
+    font-style: italic;
+    text-align: center;
+    white-space: nowrap;
+    line-height: 1.35;
+    position: absolute;
+    top: 0;
+  }
+
+  /* ── Description & use cases ──────────────────────────── */
+  .info-panel {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    padding: 0 1rem;
+  }
+
+  .description-text {
+    font-size: 0.9rem;
+    color: #bbbbbb;
+    font-style: italic;
+    line-height: 1.5;
+    white-space: pre-line;
+    margin-bottom: 1rem;
+  }
+
+  .constants-section {
+    font-size: 0.85rem;
+    color: #aaaaaa;
+    line-height: 1.6;
+    margin-bottom: 0.8rem;
+  }
+
+  .constants-section .const-header {
+    font-weight: 600;
+    color: #bbbbbb;
+  }
+
+  .symbols-section {
+    font-size: 0.85rem;
+    color: #aaaaaa;
+    line-height: 1.6;
+    margin-bottom: 0.8rem;
+    text-align: left;
+    display: inline-block;
+  }
+
+  .symbols-section .sym-type-header {
+    font-weight: 600;
+    color: #bbbbbb;
+    text-transform: capitalize;
+    margin-top: 0.5rem;
+  }
+
+  .symbols-section .sym-type-header:first-child {
+    margin-top: 0;
+  }
+
+  .symbols-section .sym-entry {
+    margin-left: 0.5rem;
+  }
+
+  .symbols-section .sym-name {
+    color: #cccccc;
+  }
+
+  .insight-section {
+    font-size: 0.85rem;
+    color: #bbbbbb;
+    font-style: italic;
+    line-height: 1.55;
+    background: rgba(78, 205, 196, 0.06);
+    border-left: 3px solid rgba(78, 205, 196, 0.35);
+    padding: 0.8rem 1.2rem;
+    border-radius: 0 8px 8px 0;
+    margin-bottom: 1.5rem;
+    white-space: pre-line;
+  }
+
+  .use-cases-list {
+    list-style: none;
+    font-size: 0.82rem;
+    color: #999999;
+    line-height: 1.7;
+  }
+
+  .use-cases-list li::before {
+    content: "\2022  ";
+  }
+
+  {% if has_interactive or has_annotator_plot %}
+  /* ── Slider controls ──────────────────────────────────── */
+  .controls-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .controls-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #bbbbbb;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+
+  .slider-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .slider-label {
+    min-width: 140px;
+    text-align: right;
+    font-size: 0.88rem;
+    color: #cccccc;
+  }
+
+  .slider-label .katex { font-size: 1rem; }
+
+  .slider-input {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 3px;
+    background: #333355;
+    outline: none;
+  }
+
+  .slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #4ECDC4;
+    cursor: pointer;
+    border: 2px solid #1a1a2e;
+  }
+
+  .slider-input::-moz-range-thumb {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #4ECDC4;
+    cursor: pointer;
+    border: 2px solid #1a1a2e;
+  }
+
+  .slider-value {
+    min-width: 80px;
+    font-size: 0.88rem;
+    color: #eeeeee;
+    font-family: "SF Mono", "Fira Code", monospace;
+  }
+
+  .reset-btn {
+    display: block;
+    margin: 1rem auto 0;
+    padding: 0.5rem 1.5rem;
+    background: transparent;
+    border: 1px solid #555577;
+    border-radius: 6px;
+    color: #aaaaaa;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .reset-btn:hover {
+    border-color: #4ECDC4;
+    color: #4ECDC4;
+  }
+
+  /* ── Plot ──────────────────────────────────────────────── */
+  .plot-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  #plot-container {
+    width: 100%;
+    height: 420px;
+  }
+  {% endif %}
+
+  /* ── Responsive ────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .eq-title { font-size: 1.2rem; }
+    .segment-col .katex-seg { font-size: 1.5rem; }
+    .slider-label { min-width: 100px; font-size: 0.8rem; }
+    .slider-value { min-width: 60px; font-size: 0.8rem; }
+    {% if has_interactive or has_annotator_plot %}
+    #plot-container { height: 300px; }
+    {% endif %}
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Title -->
+  <h1 class="eq-title">{{ title }}</h1>
+
+  <!-- Annotated equation -->
+  <div class="equation-panel" id="equation-panel">
+    <div class="equation-row" id="equation-row">
+      {% for seg in segments %}
+      <div class="segment-col{% if seg.superscript %} superscript{% endif %}" data-seg-index="{{ loop.index0 }}">
+        <span class="katex-seg" data-latex="{{ seg.latex_clean }}" data-color="{{ seg.color }}"></span>
+        {% if seg.label %}
+        <span class="seg-label" style="color: {{ seg.color }}">{{ seg.label_html }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- SVG connector lines (drawn by JS) -->
+    <svg class="connector-svg" id="connector-svg"></svg>
+
+    <!-- Group brackets -->
+    {% if groups %}
+    <div class="groups-container" id="groups-container">
+      {% for level_num in group_levels %}
+      <div class="group-row" data-level="{{ level_num }}">
+        <svg class="group-bracket-svg" data-level="{{ level_num }}"></svg>
+      </div>
+      <div class="group-labels-row" data-level="{{ level_num }}">
+        {% for g in groups if g.level == level_num %}
+        <div class="group-label-text" data-group-index="{{ loop.index0 }}"
+             data-first="{{ g.segment_indices | min }}" data-last="{{ g.segment_indices | max }}"
+             data-level="{{ g.level }}"
+             style="color: {{ g.color }}">
+          {{ g.label }}
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Description & use cases -->
+  {% if description or use_cases or constants or symbols or auto_variables %}
+  <div class="info-panel">
+    {% if description %}
+    <p class="description-text">{{ description }}</p>
+    {% endif %}
+    {% if symbols %}
+    <div class="symbols-section">
+      {% for type_name in ["variable", "parameter", "constant", "other"] %}
+      {% if type_name in symbols_by_type %}
+      <div class="sym-type-header">{{ type_name }}s:</div>
+      {% for s in symbols_by_type[type_name] %}
+      <div class="sym-entry">
+        <span class="katex-inline" data-latex="{{ s.symbol }}"></span>
+        {% if s.name %}<span class="sym-name"> ({{ s.name }})</span>{% endif %}
+        &mdash; {{ s.description }}
+      </div>
+      {% endfor %}
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% elif constants %}
+    <div class="constants-section">
+      <span class="const-header">Constants:</span><br>
+      {% for c in constants %}
+      <span class="katex-inline" data-latex="{{ c.symbol }}"></span> &mdash; {{ c.description }}{% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if auto_variables %}
+    <div class="constants-section">
+      <span class="const-header">Variables:</span><br>
+      {% for v in auto_variables %}
+      <span class="katex-inline" data-latex="{{ v.symbol }}"></span> &mdash; {{ v.description }}{% if not loop.last %}<br>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if use_cases %}
+    <ul class="use-cases-list">
+      {% for uc in use_cases %}
+      <li>{{ uc }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Insight -->
+  {% if insight %}
+  <div class="insight-section">{{ insight }}</div>
+  {% endif %}
+
+  {% if has_annotator_plot %}
+  <!-- Annotator-style plot: sliders + multi-curve chart -->
+  {% if ann_plot.sliders %}
+  <div class="controls-panel">
+    <div class="controls-title">Adjust Parameters</div>
+    {% for s in ann_plot.sliders %}
+    <div class="slider-group">
+      <span class="slider-label">
+        <span class="katex-param" data-latex="{{ s.latex }}"></span>
+        {% if s.unit %}<span style="color:#888; font-size:0.8rem">({{ s.unit }})</span>{% endif %}
+      </span>
+      <input type="range" class="slider-input" id="slider-{{ s.name }}"
+             min="{{ s.min }}" max="{{ s.max }}" value="{{ s.default }}" step="{{ s.step }}"
+             data-var="{{ s.name }}">
+      <span class="slider-value" id="value-{{ s.name }}">{{ s.default }}</span>
+    </div>
+    {% endfor %}
+    <button class="reset-btn" id="reset-btn">Reset to defaults</button>
+  </div>
+  {% endif %}
+
+  <div class="plot-panel">
+    <div id="plot-container"></div>
+  </div>
+  {% elif has_interactive %}
+  <!-- Interactive-style plot: single expression + sliders -->
+  <div class="controls-panel">
+    <div class="controls-title">Adjust Parameters</div>
+    {% for v in parameters %}
+    <div class="slider-group">
+      <span class="slider-label">
+        <span class="katex-param" data-latex="{{ v.latex }}"></span>
+        {% if v.unit %}<span style="color:#888; font-size:0.8rem">({{ v.unit }})</span>{% endif %}
+      </span>
+      <input type="range" class="slider-input" id="slider-{{ v.name }}"
+             min="{{ v.min }}" max="{{ v.max }}" value="{{ v.default }}" step="{{ v.step }}"
+             data-var="{{ v.name }}">
+      <span class="slider-value" id="value-{{ v.name }}">{{ v.default }}</span>
+    </div>
+    {% endfor %}
+    <button class="reset-btn" id="reset-btn">Reset to defaults</button>
+  </div>
+
+  <div class="plot-panel">
+    <div id="plot-container"></div>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+// ── Spec data (embedded by Python generator) ──────────────
+const SPEC = {{ spec_json }};
+const HAS_INTERACTIVE = {{ 'true' if has_interactive else 'false' }};
+const HAS_ANNOTATOR_PLOT = {{ 'true' if has_annotator_plot else 'false' }};
+
+// ── KaTeX rendering ───────────────────────────────────────
+document.querySelectorAll('.katex-seg').forEach(el => {
+  const raw = el.getAttribute('data-latex');
+  const color = el.getAttribute('data-color');
+  // Strip outer $ signs for KaTeX
+  const tex = raw.replace(/^\$/, '').replace(/\$$/, '').trim();
+  try {
+    katex.render(tex, el, { throwOnError: false, displayMode: false });
+  } catch(e) {
+    el.textContent = tex;
+  }
+  // Apply color to the rendered KaTeX
+  el.style.color = color;
+});
+
+document.querySelectorAll('.katex-param, .katex-inline').forEach(el => {
+  const tex = el.getAttribute('data-latex');
+  try {
+    katex.render(tex, el, { throwOnError: false, displayMode: false });
+  } catch(e) {
+    el.textContent = tex;
+  }
+});
+
+// ── Connector lines ───────────────────────────────────────
+function drawConnectors() {
+  const svg = document.getElementById('connector-svg');
+  if (!svg) return;
+  const panel = document.getElementById('equation-panel');
+  const panelRect = panel.getBoundingClientRect();
+
+  // Size SVG to panel
+  svg.setAttribute('width', panelRect.width);
+  svg.setAttribute('height', panelRect.height);
+  svg.innerHTML = '';
+
+  document.querySelectorAll('.segment-col').forEach(col => {
+    const katexEl = col.querySelector('.katex-seg');
+    const labelEl = col.querySelector('.seg-label');
+    if (!katexEl || !labelEl) return;
+
+    const color = katexEl.getAttribute('data-color');
+    const katexRect = katexEl.getBoundingClientRect();
+    const labelRect = labelEl.getBoundingClientRect();
+
+    const x1 = katexRect.left + katexRect.width * 0.5 - panelRect.left;
+    const y1 = katexRect.bottom - panelRect.top + 2;
+    const x2 = labelRect.left + labelRect.width * 0.5 - panelRect.left;
+    const y2 = labelRect.top - panelRect.top - 2;
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-opacity', '0.4');
+    line.setAttribute('stroke-width', '1.5');
+    svg.appendChild(line);
+  });
+}
+
+// ── Group brackets ────────────────────────────────────────
+function drawGroupBrackets() {
+  if (!SPEC.groups || SPEC.groups.length === 0) return;
+  const panel = document.getElementById('equation-panel');
+  const panelRect = panel.getBoundingClientRect();
+  const segCols = document.querySelectorAll('.segment-col');
+
+  document.querySelectorAll('.group-bracket-svg').forEach(svg => {
+    const level = parseInt(svg.getAttribute('data-level'));
+    svg.innerHTML = '';
+    const svgRect = svg.getBoundingClientRect();
+    const svgW = svgRect.width;
+    const svgH = svgRect.height;
+    svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+
+    SPEC.groups.filter(g => (g.level || 1) === level).forEach(g => {
+      const firstIdx = Math.min(...g.segment_indices);
+      const lastIdx = Math.max(...g.segment_indices);
+      const firstCol = segCols[firstIdx];
+      const lastCol = segCols[lastIdx];
+      if (!firstCol || !lastCol) return;
+
+      const firstRect = firstCol.getBoundingClientRect();
+      const lastRect = lastCol.getBoundingClientRect();
+
+      const x1 = firstRect.left - svgRect.left;
+      const x2 = lastRect.right - svgRect.left;
+      const midY = svgH * 0.35;
+      const tickH = 8;
+      const color = g.color || '#AAAAAA';
+
+      // Horizontal line
+      const hLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      hLine.setAttribute('x1', x1); hLine.setAttribute('y1', midY);
+      hLine.setAttribute('x2', x2); hLine.setAttribute('y2', midY);
+      hLine.setAttribute('stroke', color); hLine.setAttribute('stroke-opacity', '0.7');
+      hLine.setAttribute('stroke-width', '1.5');
+      svg.appendChild(hLine);
+
+      // Left tick
+      const lTick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      lTick.setAttribute('x1', x1); lTick.setAttribute('y1', midY - tickH);
+      lTick.setAttribute('x2', x1); lTick.setAttribute('y2', midY);
+      lTick.setAttribute('stroke', color); lTick.setAttribute('stroke-opacity', '0.7');
+      lTick.setAttribute('stroke-width', '1.5');
+      svg.appendChild(lTick);
+
+      // Right tick
+      const rTick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      rTick.setAttribute('x1', x2); rTick.setAttribute('y1', midY - tickH);
+      rTick.setAttribute('x2', x2); rTick.setAttribute('y2', midY);
+      rTick.setAttribute('stroke', color); rTick.setAttribute('stroke-opacity', '0.7');
+      rTick.setAttribute('stroke-width', '1.5');
+      svg.appendChild(rTick);
+    });
+  });
+
+  // Position group labels centered under brackets, then spread overlaps
+  document.querySelectorAll('.group-labels-row').forEach(row => {
+    const labels = Array.from(row.querySelectorAll('.group-label-text'));
+    if (labels.length === 0) return;
+
+    const rowRect = row.getBoundingClientRect();
+    const rowW = rowRect.width;
+
+    // 1. Center each label under its bracket midpoint (natural width)
+    labels.forEach(el => {
+      el.style.left = '0';
+      el.style.width = '';
+      const firstIdx = parseInt(el.getAttribute('data-first'));
+      const lastIdx = parseInt(el.getAttribute('data-last'));
+      const firstCol = segCols[firstIdx];
+      const lastCol = segCols[lastIdx];
+      if (!firstCol || !lastCol) return;
+
+      const firstRect = firstCol.getBoundingClientRect();
+      const lastRect = lastCol.getBoundingClientRect();
+      const bracketCenter = (firstRect.left + lastRect.right) / 2 - rowRect.left;
+      const labelW = el.getBoundingClientRect().width;
+      let x = bracketCenter - labelW / 2;
+
+      // Clamp to panel edges
+      x = Math.max(0, Math.min(x, rowW - labelW));
+      el.style.left = x + 'px';
+    });
+
+    // 2. Iterative overlap spreading (same pattern as segment labels)
+    const MIN_GAP = 6;
+    let changed = true;
+    let iterations = 0;
+    while (changed && iterations < 10) {
+      changed = false;
+      iterations++;
+      for (let i = 0; i < labels.length - 1; i++) {
+        const rA = labels[i].getBoundingClientRect();
+        const rB = labels[i + 1].getBoundingClientRect();
+        const overlap = rA.right + MIN_GAP - rB.left;
+        if (overlap > 0) {
+          const shiftA = overlap / 2;
+          const shiftB = overlap / 2;
+          const curA = parseFloat(labels[i].style.left) || 0;
+          const curB = parseFloat(labels[i + 1].style.left) || 0;
+          labels[i].style.left = Math.max(0, curA - shiftA) + 'px';
+          labels[i + 1].style.left = Math.min(rowW - labels[i + 1].getBoundingClientRect().width, curB + shiftB) + 'px';
+          changed = true;
+        }
+      }
+    }
+
+    // 3. Set row height to tallest label
+    let maxH = 0;
+    labels.forEach(el => {
+      maxH = Math.max(maxH, el.getBoundingClientRect().height);
+    });
+    row.style.minHeight = maxH + 'px';
+  });
+}
+
+// ── Spread overlapping labels ─────────────────────────────
+function spreadLabels() {
+  const labels = Array.from(document.querySelectorAll('.seg-label'));
+  if (labels.length < 2) return;
+
+  // Reset any previously-added spacing so we recalculate from scratch
+  document.querySelectorAll('.segment-col').forEach(col => {
+    col.style.marginLeft = '';
+    col.style.marginRight = '';
+  });
+
+  const MIN_GAP = 10; // minimum px between adjacent labels
+  let changed = true;
+  let iterations = 0;
+
+  while (changed && iterations < 8) {
+    changed = false;
+    iterations++;
+
+    for (let i = 0; i < labels.length - 1; i++) {
+      const rectA = labels[i].getBoundingClientRect();
+      const rectB = labels[i + 1].getBoundingClientRect();
+      const overlap = rectA.right + MIN_GAP - rectB.left;
+
+      if (overlap > 0) {
+        // Push the right label's segment-col further right
+        const colB = labels[i + 1].closest('.segment-col');
+        const current = parseFloat(colB.style.marginLeft) || 0;
+        colB.style.marginLeft = (current + overlap) + 'px';
+        changed = true;
+      }
+    }
+  }
+}
+
+// ── Draw annotations after layout settles ─────────────────
+function drawAnnotations() {
+  spreadLabels();
+  drawConnectors();
+  drawGroupBrackets();
+}
+
+// Run after fonts & KaTeX finish rendering
+window.addEventListener('load', () => {
+  // Small delay to let KaTeX finish layout
+  setTimeout(drawAnnotations, 100);
+});
+window.addEventListener('resize', drawAnnotations);
+
+{% if has_interactive %}
+// ── Interactive: Sliders & Plot ───────────────────────────
+const interactive = SPEC.interactive;
+const expression = interactive.expression;
+const variables = interactive.variables;
+const plotSpec = interactive.plot;
+const outputSpec = interactive.output;
+
+// Find independent variable
+const indepVar = variables.find(v => v.role === 'independent');
+const paramVars = variables.filter(v => v.role === 'parameter');
+
+// Compile math.js expression once
+const compiledExpr = math.compile(expression);
+
+// Read current slider values
+function getParamValues() {
+  const scope = {};
+  paramVars.forEach(v => {
+    scope[v.name] = parseFloat(document.getElementById('slider-' + v.name).value);
+  });
+  return scope;
+}
+
+// Evaluate expression over independent variable range
+function evaluateCurve() {
+  const scope = getParamValues();
+  const xVar = indepVar;
+  const nPoints = 300;
+  const xMin = xVar.min;
+  const xMax = xVar.max;
+  const dx = (xMax - xMin) / (nPoints - 1);
+
+  const xs = [];
+  const ys = [];
+  for (let i = 0; i < nPoints; i++) {
+    const x = xMin + i * dx;
+    scope[xVar.name] = x;
+    xs.push(x);
+    try {
+      ys.push(compiledExpr.evaluate(scope));
+    } catch(e) {
+      ys.push(NaN);
+    }
+  }
+  return { xs, ys };
+}
+
+// Plotly layout
+const plotLayout = {
+  paper_bgcolor: 'rgba(0,0,0,0)',
+  plot_bgcolor: 'rgba(26,26,46,0.5)',
+  font: { color: '#cccccc', family: '-apple-system, sans-serif' },
+  xaxis: {
+    title: plotSpec.x_axis.label,
+    gridcolor: 'rgba(255,255,255,0.08)',
+    zerolinecolor: 'rgba(255,255,255,0.15)',
+  },
+  yaxis: {
+    title: plotSpec.y_axis.label,
+    gridcolor: 'rgba(255,255,255,0.08)',
+    zerolinecolor: 'rgba(255,255,255,0.15)',
+  },
+  margin: { t: 30, r: 30, b: 50, l: 60 },
+};
+
+const plotConfig = {
+  responsive: true,
+  displayModeBar: false,
+};
+
+// Dynamic annotations (expressions evaluated with current slider values)
+const interactiveAnnotations = interactive.annotations || [];
+
+function evalAnnotationVal(val, params) {
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') {
+    try { return math.evaluate(val, params); } catch(e) { return parseFloat(val) || 0; }
+  }
+  return 0;
+}
+
+function buildDynamicAnnotations() {
+  const params = getParamValues();
+  const shapes = [];
+  const annotations = [];
+  const dashMap = { dashed: 'dash', dotted: 'dot', solid: 'solid' };
+
+  interactiveAnnotations.forEach(a => {
+    const dash = dashMap[a.style] || 'dash';
+    const color = a.color || '#888';
+
+    if (a.type === 'hline') {
+      const yVal = evalAnnotationVal(a.y, params);
+      shapes.push({
+        type: 'line', xref: 'paper', x0: 0, x1: 1,
+        yref: 'y', y0: yVal, y1: yVal,
+        line: { color, width: 1.5, dash },
+      });
+      if (a.label) {
+        annotations.push({
+          x: 1, xref: 'paper', xanchor: 'right',
+          y: yVal, yref: 'y', yanchor: 'bottom',
+          text: a.label, showarrow: false,
+          font: { color, size: 11 },
+          bgcolor: 'rgba(26,26,46,0.7)', borderpad: 3,
+        });
+      }
+    } else if (a.type === 'vline') {
+      const xVal = evalAnnotationVal(a.x, params);
+      shapes.push({
+        type: 'line', yref: 'paper', y0: 0, y1: 1,
+        xref: 'x', x0: xVal, x1: xVal,
+        line: { color, width: 1.5, dash },
+      });
+      if (a.label) {
+        annotations.push({
+          x: xVal, xref: 'x', xanchor: 'left',
+          y: 1, yref: 'paper', yanchor: 'top',
+          text: '  ' + a.label, showarrow: false,
+          font: { color, size: 11 },
+          bgcolor: 'rgba(26,26,46,0.7)', borderpad: 3,
+        });
+      }
+    } else if (a.type === 'point') {
+      const xVal = evalAnnotationVal(a.x, params);
+      const yVal = evalAnnotationVal(a.y, params);
+      annotations.push({
+        x: xVal, xref: 'x',
+        y: yVal, yref: 'y',
+        text: a.label || '', showarrow: true,
+        arrowhead: 2, arrowsize: 1, arrowcolor: color,
+        font: { color, size: 11 },
+        bgcolor: 'rgba(26,26,46,0.7)', borderpad: 3,
+      });
+    } else if (a.type === 'region') {
+      const xr = (a.x_range || [0, 1]).map(v => evalAnnotationVal(v, params));
+      shapes.push({
+        type: 'rect', xref: 'x', yref: 'paper',
+        x0: xr[0], x1: xr[1], y0: 0, y1: 1,
+        fillcolor: color, opacity: a.alpha || 0.08,
+        line: { width: 0 },
+      });
+      if (a.label) {
+        annotations.push({
+          x: (xr[0] + xr[1]) / 2, xref: 'x',
+          y: 0.02, yref: 'paper', yanchor: 'bottom',
+          text: a.label, showarrow: false,
+          font: { color, size: 10 },
+        });
+      }
+    }
+  });
+
+  return { shapes, annotations };
+}
+
+function getPlotLayoutWithAnnotations() {
+  const { shapes, annotations } = buildDynamicAnnotations();
+  return Object.assign({}, plotLayout, { shapes, annotations });
+}
+
+// Initial plot
+function initPlot() {
+  const { xs, ys } = evaluateCurve();
+  const trace = {
+    x: xs,
+    y: ys,
+    type: 'scatter',
+    mode: 'lines',
+    line: { color: '#4ECDC4', width: 2.5 },
+    name: outputSpec.label,
+  };
+  Plotly.newPlot('plot-container', [trace], getPlotLayoutWithAnnotations(), plotConfig);
+}
+
+// Update plot on slider change
+function updatePlot() {
+  const { xs, ys } = evaluateCurve();
+  Plotly.react('plot-container', [{
+    x: xs,
+    y: ys,
+    type: 'scatter',
+    mode: 'lines',
+    line: { color: '#4ECDC4', width: 2.5 },
+    name: outputSpec.label,
+  }], getPlotLayoutWithAnnotations());
+}
+
+// Slider event listeners
+paramVars.forEach(v => {
+  const slider = document.getElementById('slider-' + v.name);
+  const valueDisplay = document.getElementById('value-' + v.name);
+  slider.addEventListener('input', () => {
+    valueDisplay.textContent = parseFloat(slider.value).toFixed(
+      // Show decimals based on step
+      (v.step.toString().split('.')[1] || '').length || 0
+    );
+    updatePlot();
+  });
+});
+
+// Reset button
+document.getElementById('reset-btn').addEventListener('click', () => {
+  paramVars.forEach(v => {
+    const slider = document.getElementById('slider-' + v.name);
+    const valueDisplay = document.getElementById('value-' + v.name);
+    slider.value = v.default;
+    valueDisplay.textContent = v.default;
+  });
+  updatePlot();
+});
+
+// Initialize on load
+window.addEventListener('load', () => {
+  initPlot();
+});
+{% endif %}
+
+{% if has_annotator_plot %}
+// ── Annotator-style multi-curve plot ──────────────────────
+const annCurves = {{ ann_plot.curves | tojson }};
+const annFixedParams = {{ ann_plot.fixed_params | tojson }};
+const annSliders = {{ ann_plot.sliders | tojson }};
+const annXRange = {{ ann_plot.x_range | tojson }};
+const annYRange = {{ ann_plot.y_range | tojson }};
+const annAnnotations = {{ ann_plot.annotations | tojson }};
+const annNumPoints = {{ ann_plot.num_points }};
+const annLogX = {{ 'true' if ann_plot.log_x_axis else 'false' }};
+const annLogY = {{ 'true' if ann_plot.log_y_axis else 'false' }};
+
+// Compile each curve expression
+const compiledCurves = annCurves.map(c => ({
+  compiled: math.compile(c.expr),
+  color: c.color,
+  label: c.label,
+  style: c.style,
+  linewidth: c.linewidth,
+  curveParams: c.curve_parameters || {},
+}));
+
+// Read slider values
+function getAnnParamValues() {
+  const scope = Object.assign({}, annFixedParams);
+  annSliders.forEach(s => {
+    scope[s.name] = parseFloat(document.getElementById('slider-' + s.name).value);
+  });
+  return scope;
+}
+
+// Evaluate all curves
+function evaluateAnnCurves() {
+  const baseScope = getAnnParamValues();
+  const xMin = annXRange[0];
+  const xMax = annXRange[1];
+  // Use logarithmically-spaced x values for log axes so curves appear smooth
+  const logXMin = annLogX ? Math.log10(xMin) : 0;
+  const logXMax = annLogX ? Math.log10(xMax) : 0;
+
+  return compiledCurves.map(curve => {
+    const xs = [];
+    const ys = [];
+    for (let i = 0; i < annNumPoints; i++) {
+      const xVal = annLogX
+        ? Math.pow(10, logXMin + i * (logXMax - logXMin) / (annNumPoints - 1))
+        : xMin + i * (xMax - xMin) / (annNumPoints - 1);
+      const scope = Object.assign({}, baseScope, curve.curveParams, { x: xVal });
+      xs.push(xVal);
+      try {
+        ys.push(curve.compiled.evaluate(scope));
+      } catch(e) {
+        ys.push(NaN);
+      }
+    }
+    return { xs, ys, color: curve.color, label: curve.label, style: curve.style, linewidth: curve.linewidth };
+  });
+}
+
+// Build Plotly traces from evaluated curves
+function buildAnnTraces(evaluated) {
+  return evaluated.map(ev => ({
+    x: ev.xs,
+    y: ev.ys,
+    type: 'scatter',
+    mode: 'lines',
+    line: {
+      color: ev.color,
+      width: ev.linewidth || 2,
+      dash: ev.style === '--' ? 'dash' : ev.style === ':' ? 'dot' : ev.style === '-.' ? 'dashdot' : 'solid',
+    },
+    name: ev.label,
+  }));
+}
+
+// Build Plotly annotation shapes & labels from spec annotations
+// Accepts current param values so expression-valued x/y fields update dynamically
+function buildAnnShapesAndLabels(params) {
+  const shapes = [];
+  const labels = [];
+  if (!annAnnotations) return { shapes, labels };
+
+  function evalVal(v) {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') {
+      try { return math.evaluate(v, params); } catch(e) { return parseFloat(v) || 0; }
+    }
+    return v;
+  }
+
+  annAnnotations.forEach(a => {
+    const dashMap = { dashed: 'dash', dotted: 'dot', solid: 'solid' };
+    const dash = dashMap[a.style] || 'dash';
+
+    if (a.type === 'hline') {
+      const yVal = evalVal(a.y);
+      shapes.push({
+        type: 'line', xref: 'paper', x0: 0, x1: 1,
+        yref: 'y', y0: yVal, y1: yVal,
+        line: { color: a.color || '#888', width: 1.5, dash: dash },
+      });
+      if (a.label) {
+        labels.push({
+          x: 1, xref: 'paper', xanchor: 'right',
+          y: yVal, yref: 'y', yanchor: 'bottom',
+          text: a.label, showarrow: false,
+          font: { color: a.color || '#888', size: 11 },
+          bgcolor: 'rgba(26,26,46,0.7)', borderpad: 3,
+        });
+      }
+    } else if (a.type === 'vline') {
+      const xVal = evalVal(a.x);
+      shapes.push({
+        type: 'line', yref: 'paper', y0: 0, y1: 1,
+        xref: 'x', x0: xVal, x1: xVal,
+        line: { color: a.color || '#888', width: 1.5, dash: dash },
+      });
+      if (a.label) {
+        labels.push({
+          x: xVal, xref: 'x', xanchor: 'left',
+          y: 1, yref: 'paper', yanchor: 'top',
+          text: '  ' + a.label, showarrow: false,
+          font: { color: a.color || '#888', size: 11 },
+          bgcolor: 'rgba(26,26,46,0.7)', borderpad: 3,
+        });
+      }
+    } else if (a.type === 'point') {
+      const xVal = evalVal(a.x);
+      const yVal = evalVal(a.y);
+      labels.push({
+        x: xVal, xref: 'x',
+        y: yVal, yref: 'y',
+        text: a.label || '', showarrow: true,
+        arrowhead: 2, arrowsize: 1, arrowcolor: a.color || '#888',
+        font: { color: a.color || '#888', size: 11 },
+        bgcolor: 'rgba(26,26,46,0.7)', borderpad: 3,
+      });
+    } else if (a.type === 'region') {
+      const xr = (a.x_range || [0, 1]).map(v => evalVal(v));
+      shapes.push({
+        type: 'rect', xref: 'x', yref: 'paper',
+        x0: xr[0], x1: xr[1], y0: 0, y1: 1,
+        fillcolor: a.color || 'rgba(168,230,207,0.08)',
+        opacity: a.alpha || 0.08,
+        line: { width: 0 },
+      });
+      if (a.label) {
+        labels.push({
+          x: (xr[0] + xr[1]) / 2, xref: 'x',
+          y: 0.02, yref: 'paper', yanchor: 'bottom',
+          text: a.label, showarrow: false,
+          font: { color: a.color || '#888', size: 10 },
+        });
+      }
+    }
+  });
+  return { shapes, labels };
+}
+
+// Base layout for annotator plot (annotations added dynamically)
+// For log axes, Plotly range values must be in log10 units
+const annPlotLayoutBase = {
+  paper_bgcolor: 'rgba(0,0,0,0)',
+  plot_bgcolor: 'rgba(26,26,46,0.5)',
+  font: { color: '#cccccc', family: '-apple-system, sans-serif' },
+  xaxis: {
+    title: {{ ann_plot.x_label | tojson }},
+    type: annLogX ? 'log' : '-',
+    range: annLogX
+      ? [Math.log10(annXRange[0]), Math.log10(annXRange[1])]
+      : annXRange,
+    gridcolor: 'rgba(255,255,255,0.08)',
+    zerolinecolor: 'rgba(255,255,255,0.15)',
+  },
+  yaxis: {
+    title: {{ ann_plot.y_label | tojson }},
+    type: annLogY ? 'log' : '-',
+    gridcolor: 'rgba(255,255,255,0.08)',
+    zerolinecolor: 'rgba(255,255,255,0.15)',
+  },
+  margin: { t: 30, r: 30, b: 50, l: 60 },
+  showlegend: compiledCurves.length > 1,
+  legend: { font: { color: '#cccccc' }, bgcolor: 'rgba(26,26,46,0.7)' },
+};
+
+if (annYRange) {
+  annPlotLayoutBase.yaxis.range = annLogY
+    ? [Math.log10(annYRange[0]), Math.log10(annYRange[1])]
+    : annYRange;
+}
+
+function getAnnPlotLayout() {
+  const params = getAnnParamValues();
+  const { shapes, labels } = buildAnnShapesAndLabels(params);
+  return Object.assign({}, annPlotLayoutBase, { shapes, annotations: labels });
+}
+
+const annPlotConfig = { responsive: true, displayModeBar: false };
+
+function initAnnPlot() {
+  const evaluated = evaluateAnnCurves();
+  const traces = buildAnnTraces(evaluated);
+  Plotly.newPlot('plot-container', traces, getAnnPlotLayout(), annPlotConfig);
+}
+
+function updateAnnPlot() {
+  const evaluated = evaluateAnnCurves();
+  const traces = buildAnnTraces(evaluated);
+  Plotly.react('plot-container', traces, getAnnPlotLayout());
+}
+
+// Slider listeners for annotator plot
+annSliders.forEach(s => {
+  const slider = document.getElementById('slider-' + s.name);
+  const valueDisplay = document.getElementById('value-' + s.name);
+  if (!slider) return;
+  slider.addEventListener('input', () => {
+    const decimals = (s.step.toString().split('.')[1] || '').length || 0;
+    valueDisplay.textContent = parseFloat(slider.value).toFixed(decimals);
+    updateAnnPlot();
+  });
+});
+
+// Reset button
+const annResetBtn = document.getElementById('reset-btn');
+if (annResetBtn) {
+  annResetBtn.addEventListener('click', () => {
+    annSliders.forEach(s => {
+      const slider = document.getElementById('slider-' + s.name);
+      const valueDisplay = document.getElementById('value-' + s.name);
+      slider.value = s.default;
+      valueDisplay.textContent = s.default;
+    });
+    updateAnnPlot();
+  });
+}
+
+window.addEventListener('load', () => {
+  initAnnPlot();
+});
+{% endif %}
+</script>
+</body>
+</html>
