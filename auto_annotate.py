@@ -403,7 +403,7 @@ def get_generation_prompt(equation_input, num_levels=2, num_use_cases=3,
 
 
 def render_from_spec(spec, output_dir="output", output_name=None, show=False,
-                     equation_fontsize=38, label_fontsize=11):
+                     equation_fontsize=38, label_fontsize=11, display_mode="full"):
     """Render an annotated equation from a spec dict.
 
     Parameters
@@ -421,6 +421,8 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
         Font size for equation segments.
     label_fontsize : int
         Font size for labels.
+    display_mode : str
+        Display mode: "full", "compact", "plot", or "minimal".
 
     Returns
     -------
@@ -438,12 +440,16 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
     constants = spec.get("constants", None)
     plot = spec.get("plot", None)
 
+    # Resolve display mode: CLI arg takes precedence unless "full" (default),
+    # in which case check spec dict for per-equation override
+    mode = display_mode if display_mode != "full" else spec.get("display_mode", "full")
+
     if output_name is None:
         # Convert title to snake_case filename
         output_name = re.sub(r"[^\w\s]", "", title.lower())
         output_name = re.sub(r"\s+", "_", output_name).strip("_")
 
-    print(f"Rendering: {title}")
+    print(f"Rendering: {title} (mode: {mode})")
     print(f"  {len(segments)} segments, {len(groups)} groups")
     if plot:
         print(f"  {len(plot.get('curves', []))} plot curves")
@@ -460,6 +466,7 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
         symbols=symbols,
         constants=constants,
         plot=plot,
+        display_mode=mode,
     )
 
     print("Saving output:")
@@ -480,7 +487,7 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
     return paths
 
 
-def render_batch(specs, output_dir="output", show=False):
+def render_batch(specs, output_dir="output", show=False, display_mode="full"):
     """Render multiple annotated equations from a list of spec dicts.
 
     Parameters
@@ -491,6 +498,8 @@ def render_batch(specs, output_dir="output", show=False):
         Directory for output files.
     show : bool
         Display figures interactively.
+    display_mode : str
+        Display mode: "full", "compact", "plot", or "minimal".
 
     Returns
     -------
@@ -504,7 +513,8 @@ def render_batch(specs, output_dir="output", show=False):
     for i, spec in enumerate(specs, 1):
         title = spec.get("title", f"Equation {i}")
         try:
-            render_from_spec(spec, output_dir=output_dir, show=show)
+            render_from_spec(spec, output_dir=output_dir, show=show,
+                             display_mode=display_mode)
             successes += 1
         except Exception as e:
             print(f"  FAILED: {title} — {e}")
@@ -596,6 +606,11 @@ specs are rendered; missing ones are reported for generation.
         help="Label style for prompt generation: descriptive, creative, or "
              f"mixed (default: {LABEL_STYLE}).",
     )
+    parser.add_argument(
+        "--display-mode", "-m", type=str, default="full",
+        choices=["full", "compact", "plot", "minimal"],
+        help="Display mode: full (default), compact (no plot), plot (no text), minimal (basic symbols only).",
+    )
     args = parser.parse_args()
 
     # Resolve settings
@@ -630,7 +645,8 @@ specs are rendered; missing ones are reported for generation.
             with open(jf) as f:
                 specs.append(json.load(f))
         print(f"Found {len(specs)} spec files in {spec_dir}")
-        render_batch(specs, output_dir=output_dir, show=show)
+        render_batch(specs, output_dir=output_dir, show=show,
+                     display_mode=args.display_mode)
         return
 
     # 2. --batch-file: render list of specs from a single JSON file
@@ -641,7 +657,8 @@ specs are rendered; missing ones are reported for generation.
             print("Error: --batch-file must contain a JSON array of spec dicts.")
             return
         print(f"Loaded {len(specs)} specs from {args.batch_file}")
-        render_batch(specs, output_dir=output_dir, show=show)
+        render_batch(specs, output_dir=output_dir, show=show,
+                     display_mode=args.display_mode)
         return
 
     # 3. --equations-list: check which equations have specs, report missing
@@ -681,7 +698,8 @@ specs are rendered; missing ones are reported for generation.
             for sf in have_specs:
                 with open(sf) as f:
                     specs.append(json.load(f))
-            render_batch(specs, output_dir=output_dir, show=show)
+            render_batch(specs, output_dir=output_dir, show=show,
+                         display_mode=args.display_mode)
 
         # Report missing
         if missing:
@@ -724,7 +742,8 @@ specs are rendered; missing ones are reported for generation.
         print("Or ask Claude Code to auto-annotate an equation for you.")
         return
 
-    render_from_spec(spec, output_dir, output_name, show)
+    render_from_spec(spec, output_dir, output_name, show,
+                     display_mode=args.display_mode)
     print("Done!")
 
 

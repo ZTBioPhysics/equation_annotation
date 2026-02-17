@@ -44,6 +44,14 @@ USE_LATEX = False           # Set True if you have LaTeX installed
 SHOW_PLOT = False
 GROUP_FONTSIZE = 11
 DESCRIPTION_FONTSIZE = 11
+VISUAL_CENTER_OFFSET = 0.4  # Glyph visual center as fraction of bbox width
+
+# 2-column layout column fractions (single source of truth)
+_SYM_COL_LEFT = 0.03
+_SYM_COL_RIGHT = 0.61
+_DIVIDER_X = 0.63
+_UC_COL_LEFT = 0.66
+_UC_COL_RIGHT = 0.97
 # ============================================================================
 
 
@@ -132,35 +140,76 @@ def _measure_all(segments, equation_fontsize, label_fontsize, use_latex,
     return seg_sizes, label_sizes
 
 
-def _auto_figsize(seg_sizes, label_sizes, segments, spacing_px,
-                  equation_fontsize, title, fig_dpi, layout=None):
-    """Estimate figure dimensions from content measurements."""
-    # Total equation width, accounting for superscripts having no extra spacing
-    total_eq_width = 0
+def _total_eq_width(segments, seg_sizes, spacing_px):
+    """Compute total equation width in pixels, accounting for superscript spacing."""
+    total = 0
     for i, (seg, (w, h)) in enumerate(zip(segments, seg_sizes)):
-        total_eq_width += w
+        total += w
         if i < len(segments) - 1:
             next_is_sup = segments[i + 1].get("superscript", False)
             if not next_is_sup:
-                total_eq_width += spacing_px
+                total += spacing_px
+    return total
 
-    horizontal_px = total_eq_width + equation_fontsize * 3
 
-    # Use dynamic layout for vertical sizing if available
-    if layout is not None:
-        vertical_px = layout["total_height_px"]
-    else:
-        max_eq_height = max(h for _, h in seg_sizes)
-        max_label_height = 0
-        for ls in label_sizes:
-            if ls is not None:
-                max_label_height = max(max_label_height, ls[1])
-        title_height = (equation_fontsize * 1.4) if title else 0
-        connector_gap = equation_fontsize * 0.8
-        vertical_px = (
-            title_height + max_eq_height + connector_gap
-            + max_label_height + equation_fontsize * 1.0
-        )
+def _group_symbols_by_type(symbols):
+    """Group symbol dicts by type, preserving order.
+
+    Returns
+    -------
+    grouped : dict
+        {type_name: [symbol_dicts]} for each active type.
+    active_types : list of str
+        Types that have at least one symbol, in display order.
+    show_headers : bool
+        True if there are multiple active types (show type headers).
+    """
+    type_order = ["variable", "parameter", "constant"]
+    grouped = {t: [] for t in type_order}
+    for s in symbols:
+        t = s.get("type", "constant")
+        if t not in grouped:
+            t = "constant"
+        grouped[t].append(s)
+    active_types = [t for t in type_order if grouped[t]]
+    show_headers = len(active_types) > 1
+    return grouped, active_types, show_headers
+
+
+def _compute_wrap_widths(fig_width_in, description_fontsize, fig_dpi):
+    """Compute text wrap widths (chars) for 2-column layout.
+
+    Parameters
+    ----------
+    fig_width_in : float
+        Figure width in inches.
+    description_fontsize : int
+        Font size used for symbol/use-case text.
+    fig_dpi : int
+        Figure DPI (layout resolution, typically 100).
+
+    Returns
+    -------
+    sym_wrap : int
+        Wrap width in characters for the symbols column.
+    uc_wrap : int
+        Wrap width in characters for the use-cases column.
+    """
+    pts_to_px = fig_dpi / 72.0
+    avg_char_factor = 0.50
+    char_px = (description_fontsize * 1.1) * pts_to_px * avg_char_factor
+    fig_width_px = fig_width_in * fig_dpi
+    sym_wrap = max(40, int(fig_width_px * (_SYM_COL_RIGHT - _SYM_COL_LEFT) / char_px))
+    uc_wrap = max(30, int(fig_width_px * (_UC_COL_RIGHT - _UC_COL_LEFT) / char_px))
+    return sym_wrap, uc_wrap
+
+
+def _auto_figsize(seg_sizes, label_sizes, segments, spacing_px,
+                  equation_fontsize, title, fig_dpi, layout):
+    """Estimate figure dimensions from content measurements."""
+    eq_width = _total_eq_width(segments, seg_sizes, spacing_px)
+    horizontal_px = eq_width + equation_fontsize * 3
+    vertical_px = layout["total_height_px"]
 
     width_in = max(horizontal_px / fig_dpi, 6)
     height_in = max(vertical_px / fig_dpi, 2.5)
@@ -307,6 +356,7 @@ def _validate_plot(plot_spec):
 def _compute_vertical_layout(
     equation_fontsize, title, has_labels, groups, description, use_cases,
     group_fontsize, description_fontsize, fig_dpi, symbols=None, plot=None,
+    fig_width_in=None,
 ):
     """Compute y-positions (figure-fraction) for all vertical layers.
 
@@ -382,23 +432,16 @@ def _compute_vertical_layout(
     # 2-column layout decision (before height calc, affects wrapping estimate)
     info_columns = bool(symbols and use_cases)
 
+    # Compute wrap widths from figure width (accurate, not hardcoded)
+    est_fig_width = fig_width_in if fig_width_in is not None else 6.0
+    sym_wrap, uc_wrap = _compute_wrap_widths(est_fig_width, description_fontsize, fig_dpi)
+
     # Symbols (variable/parameter/constant definitions) — compute height
     symbols_height = 0
     if symbols:
-        type_order = ["variable", "parameter", "constant"]
-        grouped = {t: [] for t in type_order}
-        for s in symbols:
-            t = s.get("type", "constant")
-            if t not in grouped:
-                t = "constant"
-            grouped[t].append(s)
-        active_types = [t for t in type_order if grouped[t]]
-        show_headers = len(active_types) > 1
+        grouped, active_types, show_headers = _group_symbols_by_type(symbols)
 
         if info_columns:
-            # Estimate wrapped line count per entry (column is ~56% of figure)
-            # Use ~100 chars as approximate wrap width for height estimation
-            est_wrap = 100
             num_lines = 0
             for t in active_types:
                 for s in grouped[t]:
@@ -406,7 +449,7 @@ def _compute_vertical_layout(
                     desc = s.get("description", "")
                     sym = s.get("symbol", "")
                     raw = f"  {sym} ({name}) \u2014 {desc}" if name else f"  {sym} \u2014 {desc}"
-                    num_lines += max(1, -(-len(raw) // est_wrap))  # ceil division
+                    num_lines += max(1, -(-len(raw) // sym_wrap))  # ceil division
             if show_headers:
                 num_lines += len(active_types)
                 num_lines += max(0, len(active_types) - 1)
@@ -424,8 +467,7 @@ def _compute_vertical_layout(
         # +1.5 lines for "Use Cases" header when in 2-column mode
         uc_header_lines = 1.5 if info_columns else 0
         if info_columns:
-            est_wrap = 50
-            uc_lines = sum(max(1, -(-len(uc) // est_wrap)) for uc in use_cases)
+            uc_lines = sum(max(1, -(-len(uc) // uc_wrap)) for uc in use_cases)
         else:
             uc_lines = len(use_cases)
         uc_height = description_fontsize * 2.2 * (uc_lines + uc_header_lines)
@@ -566,8 +608,7 @@ def _render_groups(fig, groups, seg_x_px, seg_sizes, fig_width_px, layout,
             )
 
 
-def _render_description(fig, description, layout, description_fontsize,
-                        fig_width_px):
+def _render_description(fig, description, layout, description_fontsize):
     """Render the plain-English description text block."""
     desc_y = layout["desc_y"]
     if desc_y is None:
@@ -606,21 +647,12 @@ def _render_symbols(fig, symbols, layout, description_fontsize,
         return
 
     # Group entries by type
-    type_order = ["variable", "parameter", "constant"]
     type_labels = {
         "variable": "Variables",
         "parameter": "Parameters",
         "constant": "Constants",
     }
-    grouped = {t: [] for t in type_order}
-    for s in symbols:
-        t = s.get("type", "constant")
-        if t not in grouped:
-            t = "constant"
-        grouped[t].append(s)
-
-    active_types = [t for t in type_order if grouped[t]]
-    show_headers = len(active_types) > 1
+    grouped, active_types, show_headers = _group_symbols_by_type(symbols)
 
     # Build a single multi-line string
     lines = []
@@ -845,6 +877,7 @@ def annotate_equation(
     group_fontsize=None,
     description_fontsize=None,
     plot=None,
+    display_mode="full",
 ):
     """Create a color-coded annotated equation figure.
 
@@ -898,6 +931,13 @@ def annotate_equation(
         Plot specification for an annotated matplotlib plot rendered below
         the equation annotation. Keys: curves, x_range, y_range,
         parameters, annotations, x_label, y_label, title, height_px.
+    display_mode : str
+        Controls which sections appear. One of:
+        - "full" (default): all sections
+        - "compact": no plot
+        - "plot": no description, symbols, or use cases
+        - "minimal": no plot, description, or use cases; symbols show
+          name only (no long descriptions)
 
     Returns
     -------
@@ -925,6 +965,28 @@ def annotate_equation(
     if symbols is None:
         symbols = []
 
+    # Validate and apply display mode
+    valid_modes = {"full", "compact", "plot", "minimal"}
+    if display_mode not in valid_modes:
+        raise ValueError(f"display_mode must be one of {valid_modes}, got {display_mode!r}")
+
+    if display_mode == "compact":
+        plot = None
+    elif display_mode == "plot":
+        description = None
+        symbols = []
+        use_cases = []
+    elif display_mode == "minimal":
+        plot = None
+        description = None
+        use_cases = []
+        if symbols:
+            symbols = [
+                {"symbol": s.get("symbol", ""), "name": s.get("name", ""),
+                 "type": s.get("type", "constant"), "description": ""}
+                for s in symbols
+            ]
+
     # Validate groups
     if groups:
         _validate_groups(groups, len(segments))
@@ -947,18 +1009,26 @@ def annotate_equation(
     # Check if any segments have labels
     has_labels = any(seg.get("label") for seg in segments)
 
-    # Compute dynamic vertical layout
-    layout = _compute_vertical_layout(
-        equation_fontsize, title, has_labels, groups, description, use_cases,
-        group_fontsize, description_fontsize, fig_dpi, symbols=symbols,
-        plot=plot,
-    )
-
-    # Initial measurement with a guess figsize for auto-sizing
+    # Initial measurement to determine equation width (and thus figure width)
     init_figsize = figsize or (14, 4)
     seg_sizes, label_sizes = _measure_all(
         segments, equation_fontsize, label_fontsize, use_latex,
         init_figsize, fig_dpi,
+    )
+
+    # Compute figure width early — it depends only on equation width
+    if figsize is None:
+        eq_width = _total_eq_width(segments, seg_sizes, spacing_px)
+        horizontal_px = eq_width + equation_fontsize * 3
+        fig_width_in = max(horizontal_px / fig_dpi, 6)
+    else:
+        fig_width_in = figsize[0]
+
+    # Compute dynamic vertical layout with accurate wrap widths
+    layout = _compute_vertical_layout(
+        equation_fontsize, title, has_labels, groups, description, use_cases,
+        group_fontsize, description_fontsize, fig_dpi, symbols=symbols,
+        plot=plot, fig_width_in=fig_width_in,
     )
 
     if figsize is None:
@@ -977,15 +1047,8 @@ def annotate_equation(
     fig_width_px = figsize[0] * fig_dpi
 
     # --- Compute horizontal layout (pixel positions) ---
-    total_eq_width = 0
-    for i, (seg, (w, h)) in enumerate(zip(segments, seg_sizes)):
-        total_eq_width += w
-        if i < len(segments) - 1:
-            next_is_sup = segments[i + 1].get("superscript", False)
-            if not next_is_sup:
-                total_eq_width += spacing_px
-
-    x_start = (fig_width_px - total_eq_width) / 2
+    eq_width = _total_eq_width(segments, seg_sizes, spacing_px)
+    x_start = (fig_width_px - eq_width) / 2
     x_cursor = x_start
 
     # Get y-positions from layout
@@ -994,13 +1057,10 @@ def annotate_equation(
 
     seg_x_px = []       # left edge x in pixels
     seg_center_px = []   # center x in pixels (for connectors)
-    # Visual center of math glyphs sits slightly left of bounding-box
-    # center (subscripts, limits, etc. extend the bbox rightward).
-    VISUAL_CENTER = 0.4
 
     for i, (seg, (w, h)) in enumerate(zip(segments, seg_sizes)):
         seg_x_px.append(x_cursor)
-        seg_center_px.append(x_cursor + w * VISUAL_CENTER)
+        seg_center_px.append(x_cursor + w * VISUAL_CENTER_OFFSET)
         x_cursor += w
         if i < len(segments) - 1:
             next_is_sup = segments[i + 1].get("superscript", False)
@@ -1026,9 +1086,7 @@ def annotate_equation(
     fig.set_facecolor(background_color)
 
     # Render equation segments
-    # Superscript raise is relative to equation position in figure fraction
-    sup_raise = layout["total_height_px"] * 0.06 / layout["total_height_px"]
-    # Use a fraction of figure height for superscript offset
+    # Superscript offset as a fraction of figure height
     sup_offset = 0.06 * (figsize[1] / max(figsize[1], 2.5))
     for i, seg in enumerate(segments):
         is_sup = seg.get("superscript", False)
@@ -1120,37 +1178,19 @@ def annotate_equation(
 
     # Render description
     if description:
-        _render_description(fig, description, layout, description_fontsize,
-                            fig_width_px)
+        _render_description(fig, description, layout, description_fontsize)
 
     # Render symbol definitions and use cases
     if layout.get("info_columns"):
         # 2-column layout: symbols 60% left, use cases 35% right
-        # Column geometry — span full figure width
-        sym_left = 0.03
-        sym_right = 0.61
-        divider_x = 0.63
-        uc_left = 0.66
-        uc_right = 0.97
-
-        # Estimate wrap widths from figure size and font
-        # Convert fontsize (points) to average character width (pixels)
-        pts_to_px = fig_dpi / 72.0
-        avg_char_factor = 0.50  # average width/height for proportional font
-
-        sym_col_px = figsize[0] * fig_dpi * (sym_right - sym_left)
-        sym_char_px = (description_fontsize * 1.1) * pts_to_px * avg_char_factor
-        sym_wrap = max(40, int(sym_col_px / sym_char_px))
-        uc_col_px = figsize[0] * fig_dpi * (uc_right - uc_left)
-        uc_char_px = (description_fontsize * 1.1) * pts_to_px * avg_char_factor
-        uc_wrap = max(30, int(uc_col_px / uc_char_px))
+        sym_wrap, uc_wrap = _compute_wrap_widths(figsize[0], description_fontsize, fig_dpi)
 
         if symbols:
             _render_symbols(fig, symbols, layout, description_fontsize,
-                            x_pos=sym_left, ha="left", wrap_width=sym_wrap)
+                            x_pos=_SYM_COL_LEFT, ha="left", wrap_width=sym_wrap)
         if use_cases:
             _render_use_cases(fig, use_cases, layout, description_fontsize,
-                              x_pos=uc_left, ha="left", show_header=True,
+                              x_pos=_UC_COL_LEFT, ha="left", show_header=True,
                               wrap_width=uc_wrap)
         # Subtle vertical divider between columns
         info_y = layout.get("info_y")
@@ -1158,7 +1198,7 @@ def annotate_equation(
             plot_top = layout.get("plot_top_y")
             divider_bottom = plot_top + 0.01 if plot_top is not None else 0.02
             divider = matplotlib.lines.Line2D(
-                [divider_x, divider_x],
+                [_DIVIDER_X, _DIVIDER_X],
                 [info_y - 0.01, divider_bottom],
                 transform=fig.transFigure,
                 color="#333355", alpha=0.5, linewidth=1.0,
@@ -1240,6 +1280,11 @@ Example JSON input file:
         help=f"Description font size (default: {DESCRIPTION_FONTSIZE}).",
     )
     parser.add_argument(
+        "--display-mode", type=str, default="full",
+        choices=["full", "compact", "plot", "minimal"],
+        help="Display mode: full (default), compact (no plot), plot (no text), minimal (basic symbols only).",
+    )
+    parser.add_argument(
         "--show", action="store_true",
         help="Display the figure interactively.",
     )
@@ -1309,6 +1354,7 @@ Example JSON input file:
         group_fontsize=group_fs,
         description_fontsize=desc_fs,
         plot=plot,
+        display_mode=args.display_mode,
     )
 
     print("Saving output:")

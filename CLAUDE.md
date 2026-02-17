@@ -26,6 +26,11 @@ Equation_Annotator/
 - **Two-pass rendering:** measure text extents first, then compute layout and render
 - **Annotated plot:** optional `plot` dict with `curves`, `x_range`, `annotations` etc. — renders a dark-themed matplotlib plot below the annotation showing the equation's behavior. Expressions evaluated via `_safe_eval_expr()` (restricted numpy namespace). Supports point, vline, hline, and region annotations.
 - **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → symbols → use cases → plot), converts to figure fractions
+- **Display modes:** `display_mode` parameter controls which sections appear:
+  - `full` (default) — all sections
+  - `compact` — no plot; keeps description, symbols, use cases
+  - `plot` — no text sections (description, symbols, use cases); keeps plot
+  - `minimal` — no plot, description, or use cases; symbols show name only (no long descriptions)
 
 ## Key Design Decisions
 
@@ -36,6 +41,7 @@ Equation_Annotator/
 - Dual interface: editable constants at top of file (Spyder-friendly) + argparse CLI
 - matplotlib mathtext by default (no LaTeX install needed); `\displaystyle` not supported in mathtext mode
 - Symbols section uses `ha="center"` + `multialignment="left"` to stay centered (avoids `bbox_inches='tight'` asymmetry)
+- Display mode filtering applied early in `annotate_equation()` (after backward-compat conversion, before validation) — nulls out sections so the rest of the function works unchanged
 
 ## Conda Environment
 
@@ -60,7 +66,7 @@ conda activate equation_annotator
 - **`GENERATION_PROMPT`** — detailed instructions for producing annotation specs (colors, segmentation, labels, groups, description, use cases, plot). Tuning this prompt improves all future annotations.
 - **`EXAMPLE_SPEC`** — DFT reference showing the exact format expected
 - **`render_from_spec(spec)`** — convenience function: spec dict → annotated figure
-- **CLI flags:** `--equation`, `--levels`, `--use-cases`, `--output`, `--name`, `--show`, `--spec-file`, `--use-example`, `--print-prompt`, `--spec-dir`, `--batch-file`, `--equations-list`
+- **CLI flags:** `--equation`, `--levels`, `--use-cases`, `--output`, `--name`, `--show`, `--spec-file`, `--use-example`, `--print-prompt`, `--spec-dir`, `--batch-file`, `--equations-list`, `--display-mode` / `-m`
 
 ### Batch rendering
 Three modes for rendering multiple equations at once:
@@ -98,6 +104,7 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 - **Batch rendering** — `--spec-dir`, `--batch-file`, `--equations-list` for multi-equation workflows
 - **Symbol definitions section** — every variable, parameter, and constant with name, type, and thorough educational description; grouped by type with headers
 - **Annotated plot section** — optional `plot` key in specs renders a dark-themed matplotlib plot below the annotation; supports curves, annotations (point/vline/hline/region), and parameters
+- **Display modes** — `--display-mode` flag on both CLIs (`full`, `compact`, `plot`, `minimal`); also readable from spec JSON via `display_mode` key
 - CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols`, `plot` fields; legacy `constants` still accepted)
 - PNG + SVG output at 300 DPI
 - Dynamic vertical layout adapts figure height to content
