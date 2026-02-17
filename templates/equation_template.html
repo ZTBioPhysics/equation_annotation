@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ title }}</title>
+
+<!-- KaTeX for equation rendering -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1a2e;
+    color: #cccccc;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .container {
+    max-width: 960px;
+    width: 100%;
+  }
+
+  /* Title */
+  .eq-title {
+    text-align: center;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #cccccc;
+    margin-bottom: 2rem;
+  }
+
+  /* Annotated equation panel */
+  .equation-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 2rem 2rem 1rem;
+    margin-bottom: 1.5rem;
+    position: relative;
+  }
+
+  .equation-row {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0;
+    position: relative;
+  }
+
+  .segment-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+
+  .segment-col .katex-seg {
+    font-size: 2.2rem;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .segment-col .seg-label {
+    font-size: 0.78rem;
+    text-align: center;
+    margin-top: 0.3rem;
+    white-space: pre-line;
+    line-height: 1.35;
+    opacity: 0.9;
+  }
+
+  .segment-col.superscript {
+    align-self: flex-start;
+    margin-left: -0.15em;
+  }
+
+  .segment-col.superscript .katex-seg {
+    font-size: 1.45rem;
+    position: relative;
+    top: -0.35em;
+  }
+
+  /* SVG connector overlay */
+  .connector-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  /* Group brackets */
+  .groups-container {
+    margin-top: 0.8rem;
+  }
+
+  .group-row {
+    position: relative;
+    height: 2.4rem;
+    margin-top: 0.3rem;
+  }
+
+  .group-bracket-svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .group-label-text {
+    font-size: 0.75rem;
+    font-style: italic;
+    text-align: center;
+    position: relative;
+  }
+
+  /* Description */
+  .description-text {
+    font-size: 0.9rem;
+    color: #bbbbbb;
+    font-style: italic;
+    line-height: 1.5;
+    white-space: pre-line;
+    text-align: center;
+    margin-bottom: 1rem;
+    padding: 0 1rem;
+  }
+
+  /* Info grid (symbols + use cases side by side) */
+  .info-grid {
+    margin: 1em 0;
+    border-top: 1px solid #333355;
+    padding-top: 1em;
+  }
+
+  .info-grid.two-col {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 1.5em;
+  }
+
+  .info-grid.one-col {
+    display: block;
+  }
+
+  /* Symbols section */
+  .symbols-section {
+    font-size: 0.85rem;
+    color: #aaaaaa;
+    line-height: 1.6;
+    text-align: left;
+  }
+
+  .symbols-section .sym-type-header {
+    color: #888888;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin-top: 0.8em;
+    margin-bottom: 0.3em;
+    border-bottom: 1px solid #2a2a4e;
+    padding-bottom: 0.2em;
+  }
+
+  .symbols-section .sym-type-header:first-child {
+    margin-top: 0;
+  }
+
+  .symbols-section .sym-entry {
+    margin: 0.4em 0 0.4em 0.5rem;
+  }
+
+  .symbols-section .sym-name {
+    color: #cccccc;
+  }
+
+  .symbols-section .sym-desc {
+    color: #999999;
+    font-size: 0.82rem;
+  }
+
+  /* Compact symbols (horizontal) */
+  .sym-compact-line {
+    margin: 0.3em 0;
+    color: #aaaaaa;
+    line-height: 1.6;
+    font-size: 0.85rem;
+  }
+
+  .sym-compact-line .sym-type-inline {
+    color: #888888;
+    font-weight: bold;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .sym-compact-line .sym-name {
+    color: #bbbbbb;
+  }
+
+  /* Use cases */
+  .use-cases-section {
+    color: #999999;
+  }
+
+  .use-cases-section .uc-header {
+    color: #888888;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin-bottom: 0.4em;
+    border-bottom: 1px solid #2a2a4e;
+    padding-bottom: 0.2em;
+  }
+
+  .use-cases-list {
+    list-style: none;
+    font-size: 0.82rem;
+    color: #999999;
+    line-height: 1.7;
+  }
+
+  .use-cases-list li::before {
+    content: "\2022  ";
+  }
+
+  /* Plot */
+  .plot-section {
+    text-align: center;
+    margin: 1.5em 0;
+    border-top: 1px solid #333355;
+    padding-top: 1em;
+  }
+
+  .plot-section img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+  }
+
+  /* Insight */
+  .insight-section {
+    font-size: 0.85rem;
+    color: #bbbbbb;
+    font-style: italic;
+    line-height: 1.55;
+    background: rgba(78, 205, 196, 0.06);
+    border-left: 3px solid rgba(78, 205, 196, 0.35);
+    padding: 0.8rem 1.2rem;
+    border-radius: 0 8px 8px 0;
+    margin-bottom: 1.5rem;
+    white-space: pre-line;
+  }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .eq-title { font-size: 1.2rem; }
+    .segment-col .katex-seg { font-size: 1.5rem; }
+    .info-grid.two-col {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Print / PDF */
+  @page {
+    size: letter;
+    margin: 0.75in;
+    background-color: #1a1a2e;
+  }
+
+  @media print {
+    body { padding: 0; }
+    .container { max-width: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Title -->
+  <h1 class="eq-title">{{ title }}</h1>
+
+  <!-- Annotated equation -->
+  <div class="equation-panel" id="equation-panel">
+    <div class="equation-row" id="equation-row">
+      {% for seg in segments %}
+      <div class="segment-col{% if seg.superscript %} superscript{% endif %}" data-seg-index="{{ loop.index0 }}">
+        <span class="katex-seg" data-latex="{{ seg.latex_clean }}" data-color="{{ seg.color }}"></span>
+        {% if seg.label %}
+        <span class="seg-label" style="color: {{ seg.color }}">{{ seg.label_html }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- SVG connector lines (drawn by JS) -->
+    <svg class="connector-svg" id="connector-svg"></svg>
+
+    <!-- Group brackets -->
+    {% if groups %}
+    <div class="groups-container" id="groups-container">
+      {% for level_num in group_levels %}
+      <div class="group-row" data-level="{{ level_num }}">
+        <svg class="group-bracket-svg" data-level="{{ level_num }}"></svg>
+      </div>
+      {% for g in groups if g.level == level_num %}
+      <div class="group-label-text" data-group-index="{{ loop.index0 }}"
+           data-first="{{ g.segment_indices | min }}" data-last="{{ g.segment_indices | max }}"
+           data-level="{{ g.level }}"
+           style="color: {{ g.color }}">
+        {{ g.label }}
+      </div>
+      {% endfor %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Description -->
+  {% if show_description and description %}
+  <p class="description-text">{{ description }}</p>
+  {% endif %}
+
+  <!-- Info grid: symbols + use cases -->
+  {% if show_symbols or show_use_cases %}
+  {% if show_symbols and show_use_cases %}
+  <div class="info-grid two-col">
+  {% else %}
+  <div class="info-grid one-col">
+  {% endif %}
+
+    {% if show_symbols %}
+    {% if compact_symbols %}
+    {# Compact mode: horizontal "Type: sym (name) . sym (name)" #}
+    <div class="symbols-compact">
+      {% for type_name, type_label in [("variable", "Variables"), ("parameter", "Parameters"), ("constant", "Constants")] %}
+      {% if type_name in symbols_by_type %}
+      <p class="sym-compact-line">
+        <span class="sym-type-inline">{{ type_label }}:</span>
+        {% for s in symbols_by_type[type_name] %}
+        <span class="sym-name">{{ s.symbol }}</span> ({{ s.name }}){% if not loop.last %} &middot; {% endif %}
+        {% endfor %}
+      </p>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% else %}
+    {# Full mode: grouped with descriptions #}
+    <div class="symbols-section">
+      {% for type_name, type_label in [("variable", "Variables"), ("parameter", "Parameters"), ("constant", "Constants")] %}
+      {% if type_name in symbols_by_type %}
+      {% if show_sym_headers %}
+      <div class="sym-type-header">{{ type_label }}</div>
+      {% endif %}
+      {% for s in symbols_by_type[type_name] %}
+      <div class="sym-entry">
+        <span class="katex-inline" data-latex="{{ s.symbol }}"></span>
+        {% if s.name %}<span class="sym-name"> ({{ s.name }})</span>{% endif %}
+        {% if s.description %} &mdash; <span class="sym-desc">{{ s.description }}</span>{% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% if show_use_cases %}
+    <div class="use-cases-section">
+      <div class="uc-header">Use Cases</div>
+      <ul class="use-cases-list">
+        {% for uc in use_cases %}
+        <li>{{ uc }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+  </div>
+  {% endif %}
+
+  <!-- Plot (static image) -->
+  {% if show_plot and plot_data_uri %}
+  <div class="plot-section">
+    <img src="{{ plot_data_uri }}" alt="Equation plot">
+  </div>
+  {% endif %}
+
+  <!-- Insight -->
+  {% if show_insight and insight %}
+  <div class="insight-section">{{ insight }}</div>
+  {% endif %}
+
+</div>
+
+<script>
+// KaTeX rendering
+document.querySelectorAll('.katex-seg').forEach(el => {
+  const raw = el.getAttribute('data-latex');
+  const color = el.getAttribute('data-color');
+  const tex = raw.replace(/^\$/, '').replace(/\$$/, '').trim();
+  try {
+    katex.render(tex, el, { throwOnError: false, displayMode: false });
+  } catch(e) {
+    el.textContent = tex;
+  }
+  el.style.color = color;
+});
+
+document.querySelectorAll('.katex-inline').forEach(el => {
+  const tex = el.getAttribute('data-latex');
+  try {
+    katex.render(tex, el, { throwOnError: false, displayMode: false });
+  } catch(e) {
+    el.textContent = tex;
+  }
+});
+
+// Connector lines
+function drawConnectors() {
+  const svg = document.getElementById('connector-svg');
+  if (!svg) return;
+  const panel = document.getElementById('equation-panel');
+  const panelRect = panel.getBoundingClientRect();
+
+  svg.setAttribute('width', panelRect.width);
+  svg.setAttribute('height', panelRect.height);
+  svg.innerHTML = '';
+
+  document.querySelectorAll('.segment-col').forEach(col => {
+    const katexEl = col.querySelector('.katex-seg');
+    const labelEl = col.querySelector('.seg-label');
+    if (!katexEl || !labelEl) return;
+
+    const color = katexEl.getAttribute('data-color');
+    const katexRect = katexEl.getBoundingClientRect();
+    const labelRect = labelEl.getBoundingClientRect();
+
+    const x1 = katexRect.left + katexRect.width * 0.5 - panelRect.left;
+    const y1 = katexRect.bottom - panelRect.top + 2;
+    const x2 = labelRect.left + labelRect.width * 0.5 - panelRect.left;
+    const y2 = labelRect.top - panelRect.top - 2;
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-opacity', '0.4');
+    line.setAttribute('stroke-width', '1.5');
+    svg.appendChild(line);
+  });
+}
+
+// Group brackets
+function drawGroupBrackets() {
+  const groups = {{ groups_json }};
+  if (!groups || groups.length === 0) return;
+  const panel = document.getElementById('equation-panel');
+  const panelRect = panel.getBoundingClientRect();
+  const segCols = document.querySelectorAll('.segment-col');
+
+  document.querySelectorAll('.group-bracket-svg').forEach(svg => {
+    const level = parseInt(svg.getAttribute('data-level'));
+    svg.innerHTML = '';
+    const svgRect = svg.getBoundingClientRect();
+    const svgW = svgRect.width;
+    const svgH = svgRect.height;
+    svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+
+    groups.filter(g => (g.level || 1) === level).forEach(g => {
+      const firstIdx = Math.min(...g.segment_indices);
+      const lastIdx = Math.max(...g.segment_indices);
+      const firstCol = segCols[firstIdx];
+      const lastCol = segCols[lastIdx];
+      if (!firstCol || !lastCol) return;
+
+      const firstRect = firstCol.getBoundingClientRect();
+      const lastRect = lastCol.getBoundingClientRect();
+
+      const x1 = firstRect.left - svgRect.left;
+      const x2 = lastRect.right - svgRect.left;
+      const midY = svgH * 0.35;
+      const tickH = 8;
+      const color = g.color || '#AAAAAA';
+
+      const hLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      hLine.setAttribute('x1', x1); hLine.setAttribute('y1', midY);
+      hLine.setAttribute('x2', x2); hLine.setAttribute('y2', midY);
+      hLine.setAttribute('stroke', color); hLine.setAttribute('stroke-opacity', '0.7');
+      hLine.setAttribute('stroke-width', '1.5');
+      svg.appendChild(hLine);
+
+      const lTick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      lTick.setAttribute('x1', x1); lTick.setAttribute('y1', midY - tickH);
+      lTick.setAttribute('x2', x1); lTick.setAttribute('y2', midY);
+      lTick.setAttribute('stroke', color); lTick.setAttribute('stroke-opacity', '0.7');
+      lTick.setAttribute('stroke-width', '1.5');
+      svg.appendChild(lTick);
+
+      const rTick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      rTick.setAttribute('x1', x2); rTick.setAttribute('y1', midY - tickH);
+      rTick.setAttribute('x2', x2); rTick.setAttribute('y2', midY);
+      rTick.setAttribute('stroke', color); rTick.setAttribute('stroke-opacity', '0.7');
+      rTick.setAttribute('stroke-width', '1.5');
+      svg.appendChild(rTick);
+    });
+  });
+
+  // Position group label text centered under their bracket span
+  document.querySelectorAll('.group-label-text').forEach(el => {
+    const firstIdx = parseInt(el.getAttribute('data-first'));
+    const lastIdx = parseInt(el.getAttribute('data-last'));
+    const firstCol = segCols[firstIdx];
+    const lastCol = segCols[lastIdx];
+    if (!firstCol || !lastCol) return;
+
+    const firstRect = firstCol.getBoundingClientRect();
+    const lastRect = lastCol.getBoundingClientRect();
+    const bracketLeft = firstRect.left - panelRect.left;
+    const bracketRight = lastRect.right - panelRect.left;
+    const bracketWidth = bracketRight - bracketLeft;
+
+    el.style.width = bracketWidth + 'px';
+    el.style.marginLeft = bracketLeft + 'px';
+    el.style.marginRight = 'auto';
+    el.style.textAlign = 'center';
+  });
+}
+
+// Spread overlapping labels
+function spreadLabels() {
+  const labels = Array.from(document.querySelectorAll('.seg-label'));
+  if (labels.length < 2) return;
+
+  document.querySelectorAll('.segment-col').forEach(col => {
+    col.style.marginLeft = '';
+    col.style.marginRight = '';
+  });
+
+  const MIN_GAP = 10;
+  let changed = true;
+  let iterations = 0;
+
+  while (changed && iterations < 8) {
+    changed = false;
+    iterations++;
+
+    for (let i = 0; i < labels.length - 1; i++) {
+      const rectA = labels[i].getBoundingClientRect();
+      const rectB = labels[i + 1].getBoundingClientRect();
+      const overlap = rectA.right + MIN_GAP - rectB.left;
+
+      if (overlap > 0) {
+        const colB = labels[i + 1].closest('.segment-col');
+        const current = parseFloat(colB.style.marginLeft) || 0;
+        colB.style.marginLeft = (current + overlap) + 'px';
+        changed = true;
+      }
+    }
+  }
+}
+
+// Draw all annotations after layout settles
+function drawAnnotations() {
+  spreadLabels();
+  drawConnectors();
+  drawGroupBrackets();
+}
+
+window.addEventListener('load', () => {
+  setTimeout(drawAnnotations, 100);
+});
+window.addEventListener('resize', drawAnnotations);
+</script>
+</body>
+</html>

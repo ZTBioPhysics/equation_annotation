@@ -2,31 +2,38 @@
 """
 HTML/CSS Renderer for Equation Annotator.
 
-Renders equation annotations as self-contained HTML documents with embedded
-matplotlib images. Text layout (title, description, symbols, use cases,
-insight) is handled by HTML/CSS — no more pixel-math for text flow.
-
-The equation card and plot are rendered as matplotlib figures and embedded
-as base64 data URIs.
+Dual rendering paths:
+  - **KaTeX/Jinja2** (default for ``--html``): Browser-rendered KaTeX equations
+    with SVG connector overlays, label-spreading JS, and CSS layout.  Produces
+    self-contained HTML with a KaTeX CDN link.
+  - **matplotlib/PDF** (used for ``--pdf``): Rasterized matplotlib equation card
+    and plot embedded as base64 PNGs.  Text layout via inline CSS.  PDF export
+    via optional weasyprint.
 
 Usage:
     from html_renderer import render_from_spec_html
 
-    # HTML output (no extra dependencies)
+    # HTML output — KaTeX path (no extra dependencies beyond jinja2)
     render_from_spec_html(spec, "output", "my_equation", fmt="html")
 
-    # PDF output (requires weasyprint>=60)
+    # PDF output — matplotlib path (requires weasyprint>=60)
     render_from_spec_html(spec, "output", "my_equation", fmt="pdf")
+
+    # Both
+    render_from_spec_html(spec, "output", "my_equation", fmt="both")
 """
 
 import base64
 import html as html_mod
+import json
 import re
 from io import BytesIO
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+from jinja2 import Environment, FileSystemLoader
 
 from equation_annotator import (
     annotate_equation,
@@ -192,8 +199,193 @@ def render_plot_standalone(plot_spec, background_color=BACKGROUND_COLOR,
 
 
 # ============================================================================
-# HTML section builders
+# Shared display-mode filtering
 # ============================================================================
+
+def _apply_display_mode(spec, display_mode):
+    """Apply display-mode filtering to spec fields.
+
+    Returns a dict with the filtered values and boolean flags for the template.
+    """
+    mode = display_mode if display_mode != "full" else spec.get("display_mode", "full")
+
+    valid_modes = {"full", "compact", "plot", "minimal", "insight"}
+    if mode not in valid_modes:
+        raise ValueError(f"display_mode must be one of {valid_modes}, got {mode!r}")
+
+    # Extract spec fields
+    description = spec.get("description")
+    symbols = spec.get("symbols", [])
+    if not symbols and spec.get("constants"):
+        symbols = [
+            {"symbol": c.get("symbol", ""), "name": c.get("symbol", ""),
+             "type": "constant", "description": c.get("description", "")}
+            for c in spec["constants"]
+        ]
+    use_cases = spec.get("use_cases", [])
+    plot_spec = spec.get("plot")
+    insight = spec.get("insight")
+
+    compact_symbols = False
+    if mode == "compact":
+        plot_spec = None
+        insight = None
+    elif mode == "plot":
+        description = None
+        symbols = []
+        use_cases = []
+        insight = None
+    elif mode == "minimal":
+        plot_spec = None
+        insight = None
+        description = None
+        use_cases = []
+        compact_symbols = True
+    elif mode == "insight":
+        use_cases = []
+        compact_symbols = True
+
+    return {
+        "mode": mode,
+        "description": description,
+        "symbols": symbols,
+        "use_cases": use_cases,
+        "plot_spec": plot_spec,
+        "insight": insight,
+        "compact_symbols": compact_symbols,
+        # Boolean flags for templates
+        "show_description": bool(description),
+        "show_symbols": bool(symbols),
+        "show_use_cases": bool(use_cases),
+        "show_plot": bool(plot_spec),
+        "show_insight": bool(insight),
+    }
+
+
+# ============================================================================
+# KaTeX / Jinja2 helpers (ported from generate_explorer.py)
+# ============================================================================
+
+def _get_template_dir():
+    """Return the path to the templates/ directory (next to this file)."""
+    return Path(__file__).resolve().parent / "templates"
+
+
+def _prepare_segments(segments):
+    """Add template-friendly fields to each segment dict."""
+    prepared = []
+    for seg in segments:
+        s = dict(seg)
+        s["latex_clean"] = seg["latex"]  # Keep original for data-attr
+        s["label_html"] = (seg.get("label") or "").replace("\n", "<br>")
+        prepared.append(s)
+    return prepared
+
+
+def _get_group_levels(groups):
+    """Return sorted list of unique group levels."""
+    if not groups:
+        return []
+    return sorted({g.get("level", 1) for g in groups})
+
+
+def _symbols_by_type(symbols):
+    """Group symbols into a dict keyed by type name."""
+    by_type = {}
+    for s in symbols:
+        t = s.get("type", "constant")
+        by_type.setdefault(t, []).append(s)
+    return by_type
+
+
+# ============================================================================
+# KaTeX / Jinja2 rendering path (for --html)
+# ============================================================================
+
+def _render_html_katex(spec, display_mode="full", plot_dpi=PLOT_DPI):
+    """Render a spec as a self-contained HTML string using KaTeX + Jinja2.
+
+    The equation is rendered client-side by KaTeX (from CDN).  Connector
+    lines, group brackets, and label spreading are handled by embedded JS.
+    The plot (if present) is rendered server-side via matplotlib and
+    embedded as a base64 PNG data URI.
+
+    Parameters
+    ----------
+    spec : dict
+        Annotation spec.
+    display_mode : str
+        Display mode: full, compact, plot, minimal, insight.
+    plot_dpi : int
+        DPI for the plot image.
+
+    Returns
+    -------
+    str
+        Complete HTML document.
+    """
+    filtered = _apply_display_mode(spec, display_mode)
+
+    # Prepare segments for Jinja2 template
+    segments = _prepare_segments(spec["segments"])
+
+    # Groups — ensure each has a level field
+    groups = [dict(g) for g in spec.get("groups", [])]
+    for g in groups:
+        g.setdefault("level", 1)
+    group_levels = _get_group_levels(groups)
+
+    # Symbols grouped by type for the template
+    symbols = filtered["symbols"]
+    symbols_by_type = _symbols_by_type(symbols) if symbols else {}
+    # Determine whether to show type headers (>1 active type)
+    show_sym_headers = len(symbols_by_type) > 1
+
+    # Render plot as base64 PNG if present after display-mode filtering
+    plot_data_uri = None
+    plot_spec = filtered["plot_spec"]
+    if plot_spec:
+        plot_fig = render_plot_standalone(plot_spec)
+        plot_data_uri = _fig_to_base64(plot_fig, dpi=plot_dpi)
+        plt.close(plot_fig)
+
+    # Load Jinja2 template
+    template_dir = _get_template_dir()
+    env = Environment(
+        loader=FileSystemLoader(str(template_dir)),
+        autoescape=False,
+    )
+    template = env.get_template("equation_template.html")
+
+    html = template.render(
+        title=spec.get("title", "Equation"),
+        segments=segments,
+        groups=groups,
+        group_levels=group_levels,
+        groups_json=json.dumps(groups),
+        description=filtered["description"],
+        use_cases=filtered["use_cases"],
+        symbols=symbols,
+        symbols_by_type=symbols_by_type,
+        show_sym_headers=show_sym_headers,
+        insight=filtered["insight"],
+        plot_data_uri=plot_data_uri,
+        # Display-mode boolean flags
+        show_description=filtered["show_description"],
+        show_symbols=filtered["show_symbols"],
+        show_use_cases=filtered["show_use_cases"],
+        show_plot=filtered["show_plot"],
+        show_insight=filtered["show_insight"],
+        compact_symbols=filtered["compact_symbols"],
+    )
+    return html
+
+
+# ============================================================================
+# matplotlib / PDF rendering path (for --pdf)
+# ============================================================================
+# The original render_html() logic — rasterized equation card, inline CSS,
+# compatible with weasyprint (no JS).
 
 def _esc(text):
     """Escape HTML special characters."""
@@ -314,10 +506,7 @@ def _build_insight_html(insight):
     return f'<p class="insight">{_esc(insight)}</p>'
 
 
-# ============================================================================
-# CSS template
-# ============================================================================
-
+# CSS for the matplotlib/PDF path
 _CSS = """\
 @page {
     size: letter;
@@ -466,12 +655,12 @@ body {
 """
 
 
-# ============================================================================
-# Main HTML assembly
-# ============================================================================
+def _render_html_pdf(spec, display_mode="full", eq_dpi=EQ_DPI, plot_dpi=PLOT_DPI):
+    """Render a spec as a self-contained HTML string (matplotlib path).
 
-def render_html(spec, display_mode="full", eq_dpi=EQ_DPI, plot_dpi=PLOT_DPI):
-    """Render a full annotation spec as a self-contained HTML string.
+    This is the original rendering approach — rasterized matplotlib equation
+    card and plot embedded as base64 PNGs.  Compatible with weasyprint for
+    PDF export (no JS required).
 
     Parameters
     ----------
@@ -489,46 +678,14 @@ def render_html(spec, display_mode="full", eq_dpi=EQ_DPI, plot_dpi=PLOT_DPI):
     str
         Complete HTML document.
     """
-    # Resolve display mode from spec if not overridden
-    mode = display_mode if display_mode != "full" else spec.get("display_mode", "full")
-
-    valid_modes = {"full", "compact", "plot", "minimal", "insight"}
-    if mode not in valid_modes:
-        raise ValueError(f"display_mode must be one of {valid_modes}, got {mode!r}")
-
-    # Extract spec fields
+    filtered = _apply_display_mode(spec, display_mode)
     title = spec.get("title")
-    description = spec.get("description")
-    symbols = spec.get("symbols", [])
-    if not symbols and spec.get("constants"):
-        symbols = [
-            {"symbol": c.get("symbol", ""), "name": c.get("symbol", ""),
-             "type": "constant", "description": c.get("description", "")}
-            for c in spec["constants"]
-        ]
-    use_cases = spec.get("use_cases", [])
-    plot_spec = spec.get("plot")
-    insight = spec.get("insight")
-
-    # Apply display mode filtering
-    compact_symbols = False
-    if mode == "compact":
-        plot_spec = None
-        insight = None
-    elif mode == "plot":
-        description = None
-        symbols = []
-        use_cases = []
-        insight = None
-    elif mode == "minimal":
-        plot_spec = None
-        insight = None
-        description = None
-        use_cases = []
-        compact_symbols = True
-    elif mode == "insight":
-        use_cases = []
-        compact_symbols = True
+    description = filtered["description"]
+    symbols = filtered["symbols"]
+    use_cases = filtered["use_cases"]
+    plot_spec = filtered["plot_spec"]
+    insight = filtered["insight"]
+    compact_symbols = filtered["compact_symbols"]
 
     # --- Render matplotlib images ---
     # Equation card
@@ -591,6 +748,40 @@ def render_html(spec, display_mode="full", eq_dpi=EQ_DPI, plot_dpi=PLOT_DPI):
         "</html>"
     )
     return html
+
+
+# ============================================================================
+# Public render_html() — router
+# ============================================================================
+
+def render_html(spec, display_mode="full", eq_dpi=EQ_DPI, plot_dpi=PLOT_DPI,
+                output_format="html"):
+    """Render a spec as a self-contained HTML string.
+
+    Parameters
+    ----------
+    spec : dict
+        Annotation spec (same format as JSON spec files).
+    display_mode : str
+        Display mode: full, compact, plot, minimal, insight.
+    eq_dpi : int
+        DPI for the equation card image (matplotlib/PDF path only).
+    plot_dpi : int
+        DPI for the plot image.
+    output_format : str
+        ``"html"`` uses KaTeX/Jinja2 path; ``"pdf"`` uses matplotlib path.
+
+    Returns
+    -------
+    str
+        Complete HTML document.
+    """
+    if output_format == "pdf":
+        return _render_html_pdf(spec, display_mode=display_mode,
+                                eq_dpi=eq_dpi, plot_dpi=plot_dpi)
+    else:
+        return _render_html_katex(spec, display_mode=display_mode,
+                                  plot_dpi=plot_dpi)
 
 
 # ============================================================================
@@ -664,20 +855,22 @@ def render_from_spec_html(spec, output_dir="output", output_name=None,
 
     print(f"Rendering (HTML): {title} (mode: {display_mode})")
 
-    html_str = render_html(spec, display_mode=display_mode,
-                           eq_dpi=eq_dpi, plot_dpi=plot_dpi)
-
     paths = []
 
     if fmt in ("html", "both"):
+        html_str = render_html(spec, display_mode=display_mode,
+                               plot_dpi=plot_dpi, output_format="html")
         html_path = outdir / f"{output_name}.html"
         html_path.write_text(html_str, encoding="utf-8")
         print(f"  Saved: {html_path}")
         paths.append(html_path)
 
     if fmt in ("pdf", "both"):
+        pdf_html = render_html(spec, display_mode=display_mode,
+                               eq_dpi=eq_dpi, plot_dpi=plot_dpi,
+                               output_format="pdf")
         pdf_path = outdir / f"{output_name}.pdf"
-        save_pdf(html_str, pdf_path)
+        save_pdf(pdf_html, pdf_path)
         paths.append(pdf_path)
 
     return paths
