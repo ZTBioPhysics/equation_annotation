@@ -118,3 +118,4 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 1. Fine-tune connector line alignment for equations with very tall symbols
 2. Generate more example equations (Bayes' theorem, Euler-Lagrange, etc.) via auto-annotation workflow
 3. Consider alternative connector styles (dotted, curved) as options
+4. Add `insight` text to existing specs (Nernst, Michaelis-Menten, etc.)
