@@ -9,7 +9,7 @@ Equation_Annotator/
 ├── equation_annotator.py   # Main module (rendering logic + CLI)
 ├── auto_annotate.py        # Auto-annotation via Claude Code
 ├── example_dft.py          # DFT demo script
-├── requirements.txt        # matplotlib>=3.7, numpy>=1.20
+├── requirements.txt        # matplotlib>=3.7, numpy>=1.20, optional sympy>=1.12
 ├── CLAUDE.md
 ├── .gitignore
 └── README.md
@@ -26,6 +26,7 @@ Equation_Annotator/
 - **Two-pass rendering:** measure text extents first, then compute layout and render
 - **Annotated plot:** optional `plot` dict with `curves`, `x_range`, `annotations` etc. — renders a dark-themed matplotlib plot below the annotation showing the equation's behavior. Expressions evaluated via `_safe_eval_expr()` (restricted numpy namespace). Supports point, vline, hline, and region annotations.
 - **Insight text:** optional `insight` string rendered below the plot — a paragraph explaining the equation's mathematical behavior and why the plot looks the way it does
+- **SymPy plot verification:** optional `--verify-plot` flag runs `verify_plot()` before rendering — auto-analysis (singularity/domain checks via `_analyze_sympy_expr()`) on every curve, plus cross-validation against a canonical `sympy_form` (via `_cross_validate_curve()`). SymPy is optional; gracefully skipped when not installed.
 - **Dynamic vertical layout:** `_compute_vertical_layout()` stacks layers top-down (title → equation → per-term labels → group brackets → description → symbols → use cases → plot → insight), converts to figure fractions
 - **Display modes:** `display_mode` parameter controls which sections appear:
   - `full` (default) — all sections
@@ -44,6 +45,8 @@ Equation_Annotator/
 - matplotlib mathtext by default (no LaTeX install needed); `\displaystyle` not supported in mathtext mode
 - Symbols section uses `ha="center"` + `multialignment="left"` to stay centered (avoids `bbox_inches='tight'` asymmetry)
 - Display mode filtering applied early in `annotate_equation()` (after backward-compat conversion, before validation) — nulls out sections so the rest of the function works unchanged
+- SymPy is optional: `try: import sympy` guard at module level; `verify_plot()` returns `SKIPPED` when not installed
+- Plot spec extensions (`sympy_form`, per-curve `curve_parameters`) are fully backward-compatible — existing specs work unchanged
 
 ## Conda Environment
 
@@ -107,8 +110,9 @@ Claude Code IS the LLM — it reads the prompt in-context and generates the spec
 - **Symbol definitions section** — every variable, parameter, and constant with name, type, and thorough educational description; grouped by type with headers
 - **Annotated plot section** — optional `plot` key in specs renders a dark-themed matplotlib plot below the annotation; supports curves, annotations (point/vline/hline/region), and parameters
 - **Insight text** — optional `insight` field in specs; paragraph explaining mathematical behavior, rendered below the plot
+- **SymPy plot verification** — `--verify-plot` flag on both CLIs runs singularity/domain analysis and optional cross-validation against `sympy_form`; SymPy is optional (gracefully skipped)
 - **Display modes** — `--display-mode` flag on both CLIs (`full`, `compact`, `plot`, `insight`, `minimal`); also readable from spec JSON via `display_mode` key
-- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols`, `plot`, `insight` fields; legacy `constants` still accepted)
+- CLI supports JSON input files (including `groups`, `description`, `use_cases`, `symbols`, `plot`, `insight`, `sympy_form`, `curve_parameters` fields; legacy `constants` still accepted)
 - PNG + SVG output at 300 DPI
 - Dynamic vertical layout adapts figure height to content
 - Pushed to GitHub (`main` branch)

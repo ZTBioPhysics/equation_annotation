@@ -26,6 +26,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
+try:
+    import sympy
+    HAS_SYMPY = True
+except ImportError:
+    HAS_SYMPY = False
+
 # ============================================================================
 # CONFIGURATION - Edit these for Spyder / interactive use
 # ============================================================================
@@ -351,6 +357,336 @@ def _validate_plot(plot_spec):
             raise ValueError(
                 f"plot.annotations[{ai}]: type must be one of {valid_types}, got {atype!r}."
             )
+
+
+def _numpy_expr_to_sympy(expr_str, parameter_names=None):
+    """Convert a numpy expression string to a SymPy expression.
+
+    Parameters
+    ----------
+    expr_str : str
+        Numpy expression (e.g., ``"x**2.8 / (Kd**2.8 + x**2.8)"``).
+    parameter_names : list of str, optional
+        Names of parameters used in the expression (besides ``x``).
+
+    Returns
+    -------
+    tuple of (sympy.Expr, sympy.Symbol, dict)
+        (sympy_expression, x_symbol, {name: sympy.Symbol})
+    """
+    # Mapping from numpy to SymPy — longest first to avoid partial matches
+    np_to_sympy = [
+        ("np.arcsin", "asin"),
+        ("np.arccos", "acos"),
+        ("np.arctan", "atan"),
+        ("np.sinh", "sinh"),
+        ("np.cosh", "cosh"),
+        ("np.tanh", "tanh"),
+        ("np.sqrt", "sqrt"),
+        ("np.sin", "sin"),
+        ("np.cos", "cos"),
+        ("np.tan", "tan"),
+        ("np.exp", "exp"),
+        ("np.log", "log"),
+        ("np.abs", "Abs"),
+        ("np.pi", "pi"),
+        ("np.e", "E"),
+    ]
+
+    converted = expr_str
+    for np_name, sp_name in np_to_sympy:
+        converted = converted.replace(np_name, sp_name)
+
+    x = sympy.Symbol("x", real=True)
+    param_symbols = {}
+    if parameter_names:
+        for name in parameter_names:
+            param_symbols[name] = sympy.Symbol(name, real=True)
+
+    local_dict = {"x": x}
+    local_dict.update(param_symbols)
+
+    sympy_expr = sympy.sympify(converted, locals=local_dict)
+    return sympy_expr, x, param_symbols
+
+
+def _analyze_sympy_expr(sympy_expr, x_sym, x_range, param_values=None,
+                        param_symbols=None):
+    """Analyze a SymPy expression for singularities and domain issues.
+
+    Parameters
+    ----------
+    sympy_expr : sympy.Expr
+    x_sym : sympy.Symbol
+    x_range : list of float
+        [x_min, x_max].
+    param_values : dict, optional
+        Parameter name/value pairs to substitute.
+    param_symbols : dict, optional
+        {name: sympy.Symbol} for parameters.
+
+    Returns
+    -------
+    dict
+        ``{'singularities': list, 'domain_warnings': list,
+        'status': 'PASS'|'WARN'|'FAIL'}``
+    """
+    result = {"singularities": [], "domain_warnings": [], "status": "PASS"}
+
+    # Substitute known parameter values
+    expr = sympy_expr
+    if param_values and param_symbols:
+        subs = {param_symbols[k]: v for k, v in param_values.items()
+                if k in param_symbols}
+        expr = sympy_expr.subs(subs)
+
+    # Check for singularities
+    try:
+        sings = sympy.singularities(expr, x_sym)
+        if hasattr(sings, "__iter__"):
+            for s in sings:
+                try:
+                    s_val = float(s)
+                    result["singularities"].append(s_val)
+                    if x_range[0] <= s_val <= x_range[1]:
+                        result["domain_warnings"].append(
+                            f"Singularity at x = {s_val} is within x_range"
+                        )
+                        result["status"] = "WARN"
+                except (TypeError, ValueError):
+                    pass
+    except (NotImplementedError, TypeError):
+        # sympy.singularities doesn't support all expression types
+        pass
+
+    # Evaluate at test points to check for complex/NaN/inf
+    x_min, x_max = x_range
+    test_points = [
+        x_min,
+        x_min + (x_max - x_min) * 0.25,
+        x_min + (x_max - x_min) * 0.5,
+        x_min + (x_max - x_min) * 0.75,
+        x_max,
+    ]
+    for tp in test_points:
+        try:
+            val = complex(expr.subs(x_sym, tp))
+            if val.imag != 0:
+                result["domain_warnings"].append(
+                    f"Complex result at x = {tp}: {val}"
+                )
+                result["status"] = "WARN"
+            elif not np.isfinite(val.real):
+                result["domain_warnings"].append(
+                    f"Non-finite result at x = {tp}: {val.real}"
+                )
+                result["status"] = "WARN"
+        except (TypeError, ValueError, ZeroDivisionError):
+            result["domain_warnings"].append(
+                f"Evaluation failed at x = {tp}"
+            )
+            result["status"] = "FAIL"
+
+    return result
+
+
+def _cross_validate_curve(curve_expr_str, sympy_form_str, x_range,
+                          plot_parameters=None, curve_parameters=None):
+    """Cross-validate a numpy curve expression against a canonical SymPy form.
+
+    Parameters
+    ----------
+    curve_expr_str : str
+        Numpy expression for this curve.
+    sympy_form_str : str
+        Canonical formula in SymPy syntax.
+    x_range : list of float
+    plot_parameters : dict, optional
+        Plot-level parameter values.
+    curve_parameters : dict, optional
+        Per-curve parameter overrides.
+
+    Returns
+    -------
+    dict
+        ``{'match': bool, 'max_relative_error': float,
+        'status': 'PASS'|'WARN'|'FAIL'}``
+    """
+    # Merge parameters: plot-level + curve-level overrides
+    all_params = {}
+    if plot_parameters:
+        all_params.update(plot_parameters)
+    if curve_parameters:
+        all_params.update(curve_parameters)
+
+    # Evaluate numpy expression at test points
+    num_points = 10
+    x_test = np.linspace(x_range[0], x_range[1], num_points)
+    # Avoid exact zero if range starts at 0 (could cause 0/0)
+    if x_test[0] == 0:
+        x_test[0] = 1e-10
+
+    try:
+        y_numpy = _safe_eval_expr(curve_expr_str, x_test, all_params)
+    except Exception as exc:
+        return {"match": False, "max_relative_error": float("inf"),
+                "status": "FAIL",
+                "message": f"numpy eval failed: {exc}"}
+
+    # Parse canonical form and evaluate via lambdify
+    param_names = list(all_params.keys())
+    try:
+        canonical_expr, x_sym, param_syms = _numpy_expr_to_sympy(
+            sympy_form_str, param_names
+        )
+    except Exception as exc:
+        return {"match": False, "max_relative_error": float("inf"),
+                "status": "FAIL",
+                "message": f"sympy parse failed: {exc}"}
+
+    # Substitute parameters and lambdify
+    subs = {param_syms[k]: v for k, v in all_params.items()
+            if k in param_syms}
+    substituted = canonical_expr.subs(subs)
+
+    try:
+        f_sympy = sympy.lambdify(x_sym, substituted, modules=["numpy"])
+        y_sympy = f_sympy(x_test)
+    except Exception as exc:
+        return {"match": False, "max_relative_error": float("inf"),
+                "status": "FAIL",
+                "message": f"sympy eval failed: {exc}"}
+
+    # Compare
+    try:
+        match = np.allclose(y_numpy, y_sympy, rtol=1e-6, equal_nan=True)
+        # Compute max relative error where y_sympy != 0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rel_err = np.abs((y_numpy - y_sympy) / np.where(y_sympy == 0, 1, y_sympy))
+            rel_err = np.where(np.isfinite(rel_err), rel_err, 0)
+        max_rel_err = float(np.max(rel_err))
+    except Exception:
+        match = False
+        max_rel_err = float("inf")
+
+    status = "PASS" if match else "FAIL"
+    return {"match": match, "max_relative_error": max_rel_err, "status": status}
+
+
+def verify_plot(plot_spec, verbose=True):
+    """Verify plot expressions using SymPy.
+
+    Runs auto-analysis (singularity/domain checks) on every curve.
+    If ``sympy_form`` is present, also cross-validates curves that have
+    ``curve_parameters``.
+
+    Parameters
+    ----------
+    plot_spec : dict
+        Plot specification with curves, x_range, etc.
+    verbose : bool
+        Print formatted results.
+
+    Returns
+    -------
+    dict
+        ``{'overall_status': 'PASS'|'WARN'|'FAIL'|'SKIPPED',
+        'curves': list of dict, 'messages': list of str}``
+    """
+    if not HAS_SYMPY:
+        result = {"overall_status": "SKIPPED",
+                  "curves": [],
+                  "messages": ["SymPy not installed — skipping verification"]}
+        if verbose:
+            print(f"Plot verification: {result['messages'][0]}")
+        return result
+
+    curves = plot_spec.get("curves", [])
+    x_range = plot_spec.get("x_range", [0, 1])
+    parameters = plot_spec.get("parameters", {})
+    sympy_form = plot_spec.get("sympy_form")
+
+    curve_results = []
+    messages = []
+    overall = "PASS"
+
+    for ci, curve in enumerate(curves):
+        expr_str = curve["expr"]
+        label = curve.get("label", f"curve {ci}")
+        curve_result = {"label": label, "analysis": None, "cross_validation": None}
+
+        # Collect all parameter names from the expression context
+        param_names = list(parameters.keys())
+        curve_params = curve.get("curve_parameters", {})
+        param_names.extend(k for k in curve_params if k not in param_names)
+
+        # Auto-analysis: convert + analyze
+        try:
+            sympy_expr, x_sym, param_syms = _numpy_expr_to_sympy(
+                expr_str, param_names
+            )
+            all_params = dict(parameters)
+            all_params.update(curve_params)
+            analysis = _analyze_sympy_expr(
+                sympy_expr, x_sym, x_range, all_params, param_syms
+            )
+            curve_result["analysis"] = analysis
+        except Exception as exc:
+            analysis = {"status": "FAIL",
+                        "singularities": [],
+                        "domain_warnings": [f"Conversion failed: {exc}"]}
+            curve_result["analysis"] = analysis
+
+        # Cross-validation (only if sympy_form present and curve has curve_parameters)
+        if sympy_form and curve_params:
+            xv = _cross_validate_curve(
+                expr_str, sympy_form, x_range, parameters, curve_params
+            )
+            curve_result["cross_validation"] = xv
+
+        # Update overall status
+        for check in [curve_result["analysis"], curve_result["cross_validation"]]:
+            if check is None:
+                continue
+            if check["status"] == "FAIL":
+                overall = "FAIL"
+            elif check["status"] == "WARN" and overall != "FAIL":
+                overall = "WARN"
+
+        curve_results.append(curve_result)
+
+    # Verbose output
+    if verbose:
+        print("Plot verification:")
+        for ci, cr in enumerate(curve_results):
+            label = cr["label"]
+            a = cr["analysis"]
+            xv = cr["cross_validation"]
+            # Determine curve-level status
+            statuses = [c["status"] for c in [a, xv] if c is not None]
+            curve_status = "FAIL" if "FAIL" in statuses else (
+                "WARN" if "WARN" in statuses else "PASS")
+            print(f'  Curve {ci} ("{label}"): {curve_status}')
+            if a:
+                sings = a.get("singularities", [])
+                if sings:
+                    print(f"    Auto-analysis: singularities at {sings}")
+                else:
+                    print(f"    Auto-analysis: no singularities in "
+                          f"[{x_range[0]}, {x_range[1]}]")
+                for w in a.get("domain_warnings", []):
+                    print(f"    WARNING: {w}")
+            if xv:
+                if xv["status"] == "PASS":
+                    print(f"    Cross-validation: max relative error = "
+                          f"{xv['max_relative_error']:.2e}")
+                else:
+                    msg = xv.get("message", f"max error = {xv['max_relative_error']:.2e}")
+                    print(f"    Cross-validation FAILED: {msg}")
+        print(f"  Overall: {overall}")
+
+    return {"overall_status": overall, "curves": curve_results,
+            "messages": messages}
 
 
 def _compute_vertical_layout(
@@ -912,6 +1248,7 @@ def annotate_equation(
     plot=None,
     display_mode="full",
     insight=None,
+    verify_expressions=False,
 ):
     """Create a color-coded annotated equation figure.
 
@@ -976,6 +1313,9 @@ def annotate_equation(
     insight : str, optional
         Paragraph explaining the equation's mathematical behavior and
         why the plot is shaped the way it is. Rendered below the plot.
+    verify_expressions : bool
+        If True, run SymPy-based verification on plot expressions
+        (requires SymPy). Prints warnings but does not block rendering.
 
     Returns
     -------
@@ -1044,6 +1384,10 @@ def annotate_equation(
     # Validate plot
     if plot:
         _validate_plot(plot)
+
+    # Optional SymPy verification
+    if plot and verify_expressions:
+        verify_plot(plot)
 
     if use_latex:
         plt.rcParams["text.usetex"] = True
@@ -1343,6 +1687,10 @@ Example JSON input file:
         "--show", action="store_true",
         help="Display the figure interactively.",
     )
+    parser.add_argument(
+        "--verify-plot", action="store_true",
+        help="Run SymPy-based verification on plot expressions (requires sympy).",
+    )
     args = parser.parse_args()
 
     # Resolve settings: CLI args > constants
@@ -1413,6 +1761,7 @@ Example JSON input file:
         plot=plot,
         display_mode=args.display_mode,
         insight=insight,
+        verify_expressions=args.verify_plot,
     )
 
     print("Saving output:")

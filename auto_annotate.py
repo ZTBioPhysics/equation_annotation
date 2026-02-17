@@ -174,6 +174,12 @@ Segmentation rules:
         - Choose x_range to show 1-2 complete periods or the most
           interesting region of the function
 
+      OPTIONAL verification fields (include when the plot shows a parametric family):
+        - "sympy_form": str — canonical formula in SymPy syntax (e.g., "x**n / (Kd**n + x**n)").
+          Use standard SymPy names: sin, cos, exp, log, sqrt, pi, E.
+        - Per-curve "curve_parameters": dict — parameter values for that specific curve,
+          used for cross-validation against sympy_form (e.g., {{"n": 2.8}}).
+
   "insight": str or None (OPTIONAL)
       A paragraph explaining the equation's mathematical behavior and
       why the plot is shaped the way it is. Focus on:
@@ -420,7 +426,8 @@ def get_generation_prompt(equation_input, num_levels=2, num_use_cases=3,
 
 
 def render_from_spec(spec, output_dir="output", output_name=None, show=False,
-                     equation_fontsize=38, label_fontsize=11, display_mode="full"):
+                     equation_fontsize=38, label_fontsize=11, display_mode="full",
+                     verify_expressions=False):
     """Render an annotated equation from a spec dict.
 
     Parameters
@@ -440,6 +447,8 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
         Font size for labels.
     display_mode : str
         Display mode: "full", "compact", "plot", or "minimal".
+    verify_expressions : bool
+        Run SymPy-based verification on plot expressions.
 
     Returns
     -------
@@ -486,6 +495,7 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
         plot=plot,
         display_mode=mode,
         insight=insight,
+        verify_expressions=verify_expressions,
     )
 
     print("Saving output:")
@@ -506,7 +516,8 @@ def render_from_spec(spec, output_dir="output", output_name=None, show=False,
     return paths
 
 
-def render_batch(specs, output_dir="output", show=False, display_mode="full"):
+def render_batch(specs, output_dir="output", show=False, display_mode="full",
+                 verify_expressions=False):
     """Render multiple annotated equations from a list of spec dicts.
 
     Parameters
@@ -519,6 +530,8 @@ def render_batch(specs, output_dir="output", show=False, display_mode="full"):
         Display figures interactively.
     display_mode : str
         Display mode: "full", "compact", "plot", or "minimal".
+    verify_expressions : bool
+        Run SymPy-based verification on plot expressions.
 
     Returns
     -------
@@ -533,7 +546,8 @@ def render_batch(specs, output_dir="output", show=False, display_mode="full"):
         title = spec.get("title", f"Equation {i}")
         try:
             render_from_spec(spec, output_dir=output_dir, show=show,
-                             display_mode=display_mode)
+                             display_mode=display_mode,
+                             verify_expressions=verify_expressions)
             successes += 1
         except Exception as e:
             print(f"  FAILED: {title} — {e}")
@@ -631,6 +645,10 @@ specs are rendered; missing ones are reported for generation.
         help="Display mode: full (default), compact (no plot), plot (no text), "
              "minimal (basic symbols only), insight (plot + explanation).",
     )
+    parser.add_argument(
+        "--verify-plot", action="store_true",
+        help="Run SymPy-based verification on plot expressions (requires sympy).",
+    )
     args = parser.parse_args()
 
     # Resolve settings
@@ -666,7 +684,8 @@ specs are rendered; missing ones are reported for generation.
                 specs.append(json.load(f))
         print(f"Found {len(specs)} spec files in {spec_dir}")
         render_batch(specs, output_dir=output_dir, show=show,
-                     display_mode=args.display_mode)
+                     display_mode=args.display_mode,
+                     verify_expressions=args.verify_plot)
         return
 
     # 2. --batch-file: render list of specs from a single JSON file
@@ -678,7 +697,8 @@ specs are rendered; missing ones are reported for generation.
             return
         print(f"Loaded {len(specs)} specs from {args.batch_file}")
         render_batch(specs, output_dir=output_dir, show=show,
-                     display_mode=args.display_mode)
+                     display_mode=args.display_mode,
+                     verify_expressions=args.verify_plot)
         return
 
     # 3. --equations-list: check which equations have specs, report missing
@@ -719,7 +739,8 @@ specs are rendered; missing ones are reported for generation.
                 with open(sf) as f:
                     specs.append(json.load(f))
             render_batch(specs, output_dir=output_dir, show=show,
-                         display_mode=args.display_mode)
+                         display_mode=args.display_mode,
+                         verify_expressions=args.verify_plot)
 
         # Report missing
         if missing:
@@ -763,7 +784,8 @@ specs are rendered; missing ones are reported for generation.
         return
 
     render_from_spec(spec, output_dir, output_name, show,
-                     display_mode=args.display_mode)
+                     display_mode=args.display_mode,
+                     verify_expressions=args.verify_plot)
     print("Done!")
 
 
